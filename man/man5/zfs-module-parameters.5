@@ -1765,6 +1765,20 @@ table.
 Default value: \fB131,072\fR.
 .RE
 
+.sp
+.ne 2
+.na
+\fBfletcher_4_impl_set\fR (string)
+.ad
+.RS 12n
+Select a fletcher 4 implementation to use.
+Two selectors are supported: \fBfastest\fR and \fBscalar\fR. If there exists
+multiple implementation of fletcher 4, the \fBfastest\fR will choose the
+fastest algorithm to use. \fBscalar\fR is to use CPU to compute fletcher 4.
+.sp
+Default value: \fBfastest\fR.
+.RE
+
 .SH ZFS I/O SCHEDULER
 ZFS issues I/O operations to leaf vdevs to satisfy and complete I/Os.
 The I/O scheduler determines when and in what order those operations are

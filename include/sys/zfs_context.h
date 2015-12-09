@@ -770,4 +770,5 @@ extern void spl_fstrans_unmark(fstrans_cookie_t);
 extern int spl_fstrans_check(void);
 
 #endif /* _KERNEL */
+
 #endif	/* _SYS_ZFS_CONTEXT_H */

@@ -128,8 +128,58 @@
 #include <sys/types.h>
 #include <sys/sysmacros.h>
 #include <sys/byteorder.h>
-#include <sys/zio.h>
 #include <sys/spa.h>
+#include <sys/zfs_context.h>
+#include <zfs_fletcher.h>
+
+static void fletcher_4_scalar_init(zio_cksum_t *zcp);
+static void fletcher_4_scalar(const void *buf, uint64_t size,
+    zio_cksum_t *zcp);
+static void fletcher_4_scalar_byteswap(const void *buf, uint64_t size,
+    zio_cksum_t *zcp);
+
+static const fletcher_4_func_t fletcher_4_scalar_calls = {
+	.init = fletcher_4_scalar_init,
+	.compute = fletcher_4_scalar,
+	.compute_byteswap = fletcher_4_scalar_byteswap,
+	.name = "scalar"
+};
+
+static const fletcher_4_func_t *fletcher_4_algos[] = {
+	&fletcher_4_scalar_calls,
+#if defined(HAVE_AVX) && defined(HAVE_AVX2)
+	&fletcher_4_avx2_calls,
+#endif
+};
+
+static const fletcher_4_func_t *fletcher_4_chosen = NULL;
+static const fletcher_4_func_t *fletcher_4_fastest = NULL;
+
+static enum fletcher_selector {
+	FLETCHER_FASTEST = 0,
+	FLETCHER_SCALAR,
+#if defined(HAVE_AVX) && defined(HAVE_AVX2)
+	FLETCHER_AVX2,
+#endif
+	FLETCHER_CYCLE
+} fletcher_4_impl_selector = FLETCHER_SCALAR;
+
+static const char *selector_names[] = {
+	"fastest",
+	"scalar",
+#if defined(HAVE_AVX) && defined(HAVE_AVX2)
+	"avx2",
+#endif
+#if !defined(_KERNEL)
+	"cycle",
+#endif
+};
+
+static kmutex_t fletcher_4_impl_selector_lock;
+
+static kstat_t *fletcher_4_kstat;
+
+static kstat_named_t fletcher_4_kstat_data[ARRAY_SIZE(fletcher_4_algos)];
 
 void
 fletcher_2_native(const void *buf, uint64_t size, zio_cksum_t *zcp)
@@ -165,14 +215,24 @@ fletcher_2_byteswap(const void *buf, uint64_t size, zio_cksum_t *zcp)
 	ZIO_SET_CHECKSUM(zcp, a0, a1, b0, b1);
 }
 
-void
-fletcher_4_native(const void *buf, uint64_t size, zio_cksum_t *zcp)
+static void fletcher_4_scalar_init(zio_cksum_t *zcp)
+{
+	ZIO_SET_CHECKSUM(zcp, 0, 0, 0, 0);
+}
+
+static void
+fletcher_4_scalar(const void *buf, uint64_t size, zio_cksum_t *zcp)
 {
 	const uint32_t *ip = buf;
 	const uint32_t *ipend = ip + (size / sizeof (uint32_t));
 	uint64_t a, b, c, d;
 
-	for (a = b = c = d = 0; ip < ipend; ip++) {
+	a = zcp->zc_word[0];
+	b = zcp->zc_word[1];
+	c = zcp->zc_word[2];
+	d = zcp->zc_word[3];
+
+	for (; ip < ipend; ip++) {
 		a += ip[0];
 		b += a;
 		c += b;
@@ -182,14 +242,19 @@ fletcher_4_native(const void *buf, uint64_t size, zio_cksum_t *zcp)
 	ZIO_SET_CHECKSUM(zcp, a, b, c, d);
 }
 
-void
-fletcher_4_byteswap(const void *buf, uint64_t size, zio_cksum_t *zcp)
+static void
+fletcher_4_scalar_byteswap(const void *buf, uint64_t size, zio_cksum_t *zcp)
 {
 	const uint32_t *ip = buf;
 	const uint32_t *ipend = ip + (size / sizeof (uint32_t));
 	uint64_t a, b, c, d;
 
-	for (a = b = c = d = 0; ip < ipend; ip++) {
+	a = zcp->zc_word[0];
+	b = zcp->zc_word[1];
+	c = zcp->zc_word[2];
+	d = zcp->zc_word[3];
+
+	for (; ip < ipend; ip++) {
 		a += BSWAP_32(ip[0]);
 		b += a;
 		c += b;
@@ -197,55 +262,218 @@ fletcher_4_byteswap(const void *buf, uint64_t size, zio_cksum_t *zcp)
 	}
 
 	ZIO_SET_CHECKSUM(zcp, a, b, c, d);
+}
+
+int
+fletcher_4_impl_set(const char *selector)
+{
+	unsigned idx, i;
+
+	for (i = 0; i < ARRAY_SIZE(selector_names); i++) {
+		if (strncmp(selector, selector_names[i],
+		    strlen(selector_names[i])) == 0) {
+			idx = i;
+			break;
+		}
+	}
+	if (i >= ARRAY_SIZE(selector_names))
+		return (-EINVAL);
+
+	if (fletcher_4_impl_selector == idx)
+		return (0);
+
+	mutex_enter(&fletcher_4_impl_selector_lock);
+	switch (idx) {
+	case FLETCHER_FASTEST:
+		fletcher_4_chosen = fletcher_4_fastest;
+		break;
+#if defined(HAVE_AVX) && defined(HAVE_AVX2)
+	case FLETCHER_AVX2:
+		fletcher_4_chosen = &fletcher_4_avx2_calls;
+		break;
+#endif
+	case FLETCHER_SCALAR:
+	case FLETCHER_CYCLE:
+		fletcher_4_chosen = &fletcher_4_scalar_calls;
+		break;
+	}
+
+	fletcher_4_impl_selector = idx;
+	mutex_exit(&fletcher_4_impl_selector_lock);
+
+	return (0);
+}
+
+static inline const fletcher_4_func_t *
+fletcher_4_impl_get(void)
+{
+#if !defined(_KERNEL)
+	if (fletcher_4_impl_selector == FLETCHER_CYCLE) {
+		static volatile unsigned int cycle_count = 0;
+		const fletcher_4_func_t *algo = NULL;
+		unsigned int index;
+
+		while (1) {
+			index = atomic_inc_uint_nv(&cycle_count);
+			algo = fletcher_4_algos[
+			    index % ARRAY_SIZE(fletcher_4_algos)];
+			if (algo->valid == NULL || algo->valid())
+				break;
+		}
+		return (algo);
+	}
+#endif
+	membar_producer();
+	return (fletcher_4_chosen);
+}
+
+void
+fletcher_4_native(const void *buf, uint64_t size, zio_cksum_t *zcp)
+{
+	const fletcher_4_func_t *algo = fletcher_4_impl_get();
+
+	algo->init(zcp);
+	algo->compute(buf, size, zcp);
+	if (algo->fini != NULL)
+		algo->fini(zcp);
+}
+
+void
+fletcher_4_byteswap(const void *buf, uint64_t size, zio_cksum_t *zcp)
+{
+	const fletcher_4_func_t *algo = fletcher_4_impl_get();
+
+	algo->init(zcp);
+	algo->compute_byteswap(buf, size, zcp);
+	if (algo->fini != NULL)
+		algo->fini(zcp);
 }
 
 void
 fletcher_4_incremental_native(const void *buf, uint64_t size,
     zio_cksum_t *zcp)
 {
-	const uint32_t *ip = buf;
-	const uint32_t *ipend = ip + (size / sizeof (uint32_t));
-	uint64_t a, b, c, d;
-
-	a = zcp->zc_word[0];
-	b = zcp->zc_word[1];
-	c = zcp->zc_word[2];
-	d = zcp->zc_word[3];
-
-	for (; ip < ipend; ip++) {
-		a += ip[0];
-		b += a;
-		c += b;
-		d += c;
-	}
-
-	ZIO_SET_CHECKSUM(zcp, a, b, c, d);
+	fletcher_4_scalar(buf, size, zcp);
 }
 
 void
 fletcher_4_incremental_byteswap(const void *buf, uint64_t size,
     zio_cksum_t *zcp)
 {
-	const uint32_t *ip = buf;
-	const uint32_t *ipend = ip + (size / sizeof (uint32_t));
-	uint64_t a, b, c, d;
+	fletcher_4_scalar_byteswap(buf, size, zcp);
+}
 
-	a = zcp->zc_word[0];
-	b = zcp->zc_word[1];
-	c = zcp->zc_word[2];
-	d = zcp->zc_word[3];
+void
+fletcher_4_init(void)
+{
+	const uint64_t const bench_ns = (50 * MICROSEC); /* 50ms */
+	unsigned long best_run_count = 0;
+	unsigned long best_run_index = 0;
+	const unsigned data_size = 4096;
+	char *databuf;
+	int i;
 
-	for (; ip < ipend; ip++) {
-		a += BSWAP_32(ip[0]);
-		b += a;
-		c += b;
-		d += c;
+	databuf = kmem_alloc(data_size, KM_SLEEP);
+	for (i = 0; i < ARRAY_SIZE(fletcher_4_algos); i++) {
+		const fletcher_4_func_t *algo = fletcher_4_algos[i];
+		kstat_named_t *stat = &fletcher_4_kstat_data[i];
+		unsigned long run_count = 0;
+		hrtime_t start;
+		zio_cksum_t zc;
+
+		strncpy(stat->name, algo->name, sizeof (stat->name) - 1);
+		stat->data_type = KSTAT_DATA_UINT64;
+		stat->value.ui64 = 0;
+
+		if (algo->valid != NULL && !algo->valid())
+			continue;
+
+		kpreempt_disable();
+		start = gethrtime();
+		algo->init(&zc);
+		do {
+			algo->compute(databuf, data_size, &zc);
+			run_count++;
+		} while (gethrtime() < start + bench_ns);
+		if (algo->fini != NULL)
+			algo->fini(&zc);
+		kpreempt_enable();
+
+		if (run_count > best_run_count) {
+			best_run_count = run_count;
+			best_run_index = i;
+		}
+
+		/*
+		 * Due to high overhead of gethrtime(), the performance data
+		 * here is inaccurate and much slower than it could be.
+		 * It's fine for our use though because only relative speed
+		 * is important.
+		 */
+		stat->value.ui64 = data_size * run_count *
+		    (NANOSEC / bench_ns) >> 20; /* by MB/s */
 	}
+	kmem_free(databuf, data_size);
 
-	ZIO_SET_CHECKSUM(zcp, a, b, c, d);
+	fletcher_4_fastest = fletcher_4_algos[best_run_index];
+
+	mutex_init(&fletcher_4_impl_selector_lock, NULL, MUTEX_DEFAULT, NULL);
+	fletcher_4_impl_set("fastest");
+
+	fletcher_4_kstat = kstat_create("zfs", 0, "fletcher_4_bench",
+	    "misc", KSTAT_TYPE_NAMED, ARRAY_SIZE(fletcher_4_algos),
+	    KSTAT_FLAG_VIRTUAL);
+	if (fletcher_4_kstat != NULL) {
+		fletcher_4_kstat->ks_data = fletcher_4_kstat_data;
+		kstat_install(fletcher_4_kstat);
+	}
+}
+
+void
+fletcher_4_fini(void)
+{
+	mutex_destroy(&fletcher_4_impl_selector_lock);
+	if (fletcher_4_kstat != NULL) {
+		kstat_delete(fletcher_4_kstat);
+		fletcher_4_kstat = NULL;
+	}
 }
 
 #if defined(_KERNEL) && defined(HAVE_SPL)
+
+static int
+fletcher_4_param_get(char *buffer, struct kernel_param *unused)
+{
+	int i, cnt = 0;
+
+	for (i = 0; i < ARRAY_SIZE(selector_names); i++) {
+		cnt += sprintf(buffer + cnt,
+		    fletcher_4_impl_selector == i ? "[%s] " : "%s ",
+		    selector_names[i]);
+	}
+
+	return (cnt);
+}
+
+static int
+fletcher_4_param_set(const char *val, struct kernel_param *unused)
+{
+	return (fletcher_4_impl_set(val));
+}
+
+/*
+ * Choose a fletcher 4 implementation to use in ZFS.
+ * Users can choose the "fastest" algorithm, or the "scalar" one that means
+ * to compute fletcher 4 by CPU.
+ * Users can also choose "cycle" to exercise all implementions, but this is
+ * for testing purpose therefore it can only be set in user space.
+ */
+module_param_call(fletcher_4_impl_set,
+    fletcher_4_param_set, fletcher_4_param_get, NULL, 0644);
+MODULE_PARM_DESC(fletcher_4_impl_set, "Select fletcher 4 algorithm to use");
+
+EXPORT_SYMBOL(fletcher_4_init);
+EXPORT_SYMBOL(fletcher_4_fini);
 EXPORT_SYMBOL(fletcher_2_native);
 EXPORT_SYMBOL(fletcher_2_byteswap);
 EXPORT_SYMBOL(fletcher_4_native);
