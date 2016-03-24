@@ -2120,6 +2120,28 @@ spa_try_repair(spa_t *spa, nvlist_t *config)
 	kmem_free(vd, gcount * sizeof (vdev_t *));
 }
 
+void
+spa_mmp_init(mmp_phys_t *mmp)
+{
+	memset(mmp, 0, sizeof(*mmp));
+
+	mmp->mmp_magic = MMP_MAGIC;
+	mmp->mmp_interval = 5000;
+	mmp->mmp_first_txg = 50;
+	/*
+	 * Seems to me like utsname()->nodename might become invalid before strncpy
+	 * begins its work, but I see no _get() or equivalent to prevent that.
+	 */
+	strncpy(mmp->mmp_nodename, utsname()->nodename,
+	    sizeof(mmp->mmp_nodename));
+}
+
+void
+spa_mmp_init_open_id(mmp_phys_t *mmp)
+{
+	mmp->mmp_open_id = spa_get_random(-1ULL);
+}
+
 static int
 spa_load(spa_t *spa, spa_load_state_t state, spa_import_type_t type,
     boolean_t mosconfig)
@@ -2769,6 +2791,17 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 			    error));
 	}
 
+	/* XXX check for foreign import but do nothing for now */
+	(void) vdev_mmpblock_foreign_id(spa->spa_root_vdev);
+
+	if (spa_writeable(spa)) {
+		spa_mmp_init_open_id(&spa->spa_mmp);
+
+		/* Write out all MMP blocks with our import ID. */
+		vdev_mmpblock_store_open_id(spa->spa_root_vdev);
+	}
+
+
 	if (spa_writeable(spa) && (state == SPA_LOAD_RECOVER ||
 	    spa->spa_load_max_txg == UINT64_MAX)) {
 		dmu_tx_t *tx;
@@ -2968,27 +3001,6 @@ spa_load_best(spa_t *spa, spa_load_state_t state, int mosconfig,
 	}
 }
 
-void
-spa_mmp_init(spa_t *spa)
-{
-	memset(&spa->spa_mmp, 0, sizeof(spa->spa_mmp));
-
-	spa->spa_mmp.mmp_magic = MMP_MAGIC;
-	spa->spa_mmp.mmp_interval = 5000;
-	spa->spa_mmp.mmp_first_txg = 50;
-	/*
-	 * Seems to me like utsname()->nodename might become invalid before strncpy
-	 * begins its work, but I see no _get() or equivalent to prevent that.
-	 */
-	strncpy(spa->spa_mmp.mmp_nodename, utsname()->nodename, sizeof(spa->spa_mmp.mmp_nodename));
-}
-
-void
-spa_mmp_init_open_id(spa_t *spa)
-{
-	spa->spa_mmp.mmp_open_id = spa_get_random(-1ULL);
-}
-
 /*
  * Pool Open/Import
  *
@@ -3108,8 +3120,6 @@ spa_open_common(const char *pool, spa_t **spapp, void *tag, nvlist_t *nvpolicy,
 		spa->spa_load_txg = 0;
 		mutex_exit(&spa_namespace_lock);
 	}
-
-	spa_mmp_init_open_id(spa);
 
 #ifdef _KERNEL
 	if (firstopen)
@@ -3837,6 +3847,10 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	spa_config_sync(spa, B_FALSE, B_TRUE);
 
 	spa_history_log_version(spa, "create");
+
+	/* Write out all MMP blocks with our import ID. */
+	spa_mmp_init_open_id(&spa->spa_mmp);
+	vdev_mmpblock_store_open_id(spa->spa_root_vdev);
 
 	/*
 	 * Don't count references from objsets that are already closed
