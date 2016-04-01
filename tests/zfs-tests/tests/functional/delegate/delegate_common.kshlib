@@ -63,6 +63,7 @@ function restore_root_datasets
 			log_must $ZFS destroy -Rf $ROOT_TESTVOL
 		fi
 		log_must $ZFS create -V $VOLSIZE $ROOT_TESTVOL
+		block_device_wait
 	fi
 
 	return 0
@@ -101,6 +102,7 @@ function verify_perm
 				ret=$?
 			fi
 
+			log_note "Check $type $user $perm $dtst"
 			if ((ret != 0)) ; then
 				log_note "Fail: $user should have $perm " \
 					"on $dtst"
@@ -415,6 +417,7 @@ function verify_fs_receive
 	typeset datasets="$newfs"
 	if is_global_zone ; then
 		log_must $ZFS create -V $VOLSIZE $newvol
+		block_device_wait
 		datasets="$newfs $newvol"
 	fi
 
@@ -581,12 +584,14 @@ function verify_fs_create
 	if is_global_zone ; then
 		# mount permission is required for sparse volume
 		user_run $user $ZFS create -V 150m -s $newvol
+		block_device_wait
 		if datasetexists $newvol ; then
 			return 1
 		fi
 
 		log_must $ZFS allow $user mount $fs
 		user_run $user $ZFS create -V 150m -s $newvol
+		block_device_wait
 		log_must $ZFS unallow $user mount $fs
 		if ! datasetexists $newvol ; then
 			return 1
@@ -596,12 +601,14 @@ function verify_fs_create
 		# mount and reserveration permission are
 		# required for normal volume
 		user_run $user $ZFS create -V 150m $newvol
+		block_device_wait
 		if datasetexists $newvol ; then
 			return 1
 		fi
 
 		log_must $ZFS allow $user mount $fs
 		user_run $user $ZFS create -V 150m $newvol
+		block_device_wait
 		log_must $ZFS unallow $user mount $fs
 		if datasetexists $newvol ; then
 			return 1
@@ -609,6 +616,7 @@ function verify_fs_create
 
 		log_must $ZFS allow $user reservation $fs
 		user_run $user $ZFS create -V 150m $newvol
+		block_device_wait
 		log_must $ZFS unallow $user reservation $fs
 		if datasetexists $newvol ; then
 			return 1
@@ -616,6 +624,7 @@ function verify_fs_create
 
 		log_must $ZFS allow $user refreservation $fs
 		user_run $user $ZFS create -V 150m $newvol
+		block_device_wait
 		log_must $ZFS unallow $user refreservation $fs
 		if datasetexists $newvol ; then
 			return 1
@@ -625,6 +634,7 @@ function verify_fs_create
 		log_must $ZFS allow $user reservation $fs
 		log_must $ZFS allow $user refreservation $fs
 		user_run $user $ZFS create -V 150m $newvol
+		block_device_wait
 		log_must $ZFS unallow $user mount $fs
 		log_must $ZFS unallow $user reservation $fs
 		log_must $ZFS unallow $user refreservation $fs
