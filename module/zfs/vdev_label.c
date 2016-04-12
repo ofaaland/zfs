@@ -990,6 +990,7 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	mmp_phys_t mmp_from_disk = spa->spa_mmp;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
 	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
+	char msg[512];
 
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
 	zio = zio_root(spa, NULL, &mmp_from_disk, flags);
@@ -999,16 +1000,23 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	spa_config_exit(spa, SCL_ALL, FTAG);
 
 	if (mmp_from_disk.mmp_open_id != spa->spa_mmp.mmp_open_id) {
-		dprintf("Foreign ID found in MMP block:\n"
-			"me: open_id=%d\n"
-			"foreign: magic=%x\n"
-			"open_id=%d\n"
-			"seq=%d\n"
+		snprintf(msg, sizeof(msg),
+			"Foreign ID found in MMP block:\n"
+			"me: open_id=%llu\n"
+			"foreign: magic=%llx\n"
+			"open_id=%lld\n"
+			"seq=%lld\n"
 			"op=%d\n"
-			"nodename=%s\n", spa->spa_mmp.mmp_open_id,
-			mmp_from_disk.mmp_magic, mmp_from_disk.mmp_open_id,
-			mmp_from_disk.mmp_seq, mmp_from_disk.mmp_op,
+			"nodename=%s\n", (long long unsigned int) spa->spa_mmp.mmp_open_id,
+			(long long unsigned int) mmp_from_disk.mmp_magic,
+			(long long unsigned int) mmp_from_disk.mmp_open_id,
+			(long long unsigned int) mmp_from_disk.mmp_seq,
+			mmp_from_disk.mmp_op,
 			mmp_from_disk.mmp_nodename);
+		dprintf(msg);
+#ifdef _KERNEL
+		printk(msg);
+#endif
 		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 	}
 
