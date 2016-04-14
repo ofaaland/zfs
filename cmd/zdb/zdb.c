@@ -63,6 +63,14 @@
 #undef ZFS_MAXNAMELEN
 #include <libzfs.h>
 
+const char *mmp_op_strings[] =  {
+	"MO_TXG_SYNC",
+	"MO_INTERVAL_WRITE",
+	"MO_IMPORT_ATTEMPT",
+};
+#define	ZDB_MMP_OPERATION_NAME(idx) ((idx) < MO_OPERATIONS ?	\
+	mmp_op_strings[idx] : "UNKNOWN")
+
 #define	ZDB_COMPRESS_NAME(idx) ((idx) < ZIO_COMPRESS_FUNCTIONS ?	\
 	zio_compress_table[(idx)].ci_name : "UNKNOWN")
 #define	ZDB_CHECKSUM_NAME(idx) ((idx) < ZIO_CHECKSUM_FUNCTIONS ?	\
@@ -2121,7 +2129,8 @@ dump_mmpblock(uberblock_t *ub, const char *header, const char *footer)
 	(void) printf("\tmmp_interval = %llu\n", (u_longlong_t)ub->ub_mmp.mmp_interval);
 	(void) printf("\tmmp_delay = %llu\n", (u_longlong_t)ub->ub_mmp.mmp_delay);
 	(void) printf("\tmmp_nodename = %s\n", ub->ub_mmp.mmp_nodename);
-	(void) printf("\tmmp_op = %llu\n", (u_longlong_t)ub->ub_mmp.mmp_op);
+	(void) printf("\tmmp_op = %s (%llu)\n", ZDB_MMP_OPERATION_NAME(ub->ub_mmp.mmp_op),
+			(u_longlong_t)ub->ub_mmp.mmp_op);
 	(void) printf("\tmmp_first_txg = %llu\n", (u_longlong_t)ub->ub_mmp.mmp_first_txg);
 	(void) printf("%s", footer ? footer : "");
 }
