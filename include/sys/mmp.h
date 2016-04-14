@@ -23,6 +23,7 @@ typedef enum mmp_op {
 	MO_TXG_SYNC,
 	MO_INTERVAL_WRITE,
 	MO_IMPORT_ATTEMPT,
+	MO_OPERATIONS,
 } mmp_op_t;
 
 struct mmp_phys {
