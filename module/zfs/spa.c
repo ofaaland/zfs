@@ -1270,6 +1270,11 @@ spa_unload(spa_t *spa)
 	ASSERT(MUTEX_HELD(&spa_namespace_lock));
 
 	/*
+	 * Issue MMP block writes to indicate pool not imported
+	 */
+	vdev_mmpblock_clear_all(spa->spa_root_vdev);
+
+	/*
 	 * Stop async tasks.
 	 */
 	spa_async_suspend(spa);
@@ -1288,6 +1293,7 @@ spa_unload(spa_t *spa)
 	if (spa->spa_async_zio_root != NULL) {
 		for (i = 0; i < max_ncpus; i++)
 			(void) zio_wait(spa->spa_async_zio_root[i]);
+
 		kmem_free(spa->spa_async_zio_root, max_ncpus * sizeof (void *));
 		spa->spa_async_zio_root = NULL;
 	}

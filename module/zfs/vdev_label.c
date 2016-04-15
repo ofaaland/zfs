@@ -1057,6 +1057,35 @@ vdev_mmpblock_overwrite(zio_t *zio, vdev_t *vd, int flags,
 	zio_buf_free(zbuf, VDEV_UBERBLOCK_SIZE(vd));
 }
 
+/*
+ * Clear all MMP blocks in the pool's leaf vdevs with
+ * zeros to enable other nodes to detect that we no longer
+ * have the pool open.
+ */
+
+void
+vdev_mmpblock_clear_all(vdev_t *rvd)
+{
+	zio_t *zio;
+	spa_t *spa = rvd->vdev_spa;
+	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
+	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
+
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+	zio = zio_root(spa, NULL, NULL, flags);
+
+	vdev_mmpblock_overwrite(zio, rvd, flags, NULL);
+	(void) zio_wait(zio);
+
+	spa_config_exit(spa, SCL_ALL, FTAG);
+}
+
+/*
+ * Overwrite all MMP blocks in the pool's leaf vdevs with
+ * blocks containing our unique mmp_open_id to enable other
+ * nodes to detect that we have opened the pool r/w.
+ */
+
 void
 vdev_mmpblock_store_open_id(vdev_t *rvd)
 {
@@ -1161,16 +1190,24 @@ vdev_uberblock_sync(zio_t *zio, uberblock_t *ub, vdev_t *vd, int flags)
 	*ubbuf = *ub;
 
 	for (l = 0; l < VDEV_LABELS; l++) {
-		mmp_block_index = VDEV_FIRST_MMP_BLOCK(vd) +
-		    spa_get_random(MMP_BLOCKS_PER_LABEL);
 		vdev_label_write(zio, vd, l, ubbuf,
 		    VDEV_UBERBLOCK_OFFSET(vd, n), VDEV_UBERBLOCK_SIZE(vd),
 		    vdev_uberblock_sync_done, zio->io_private,
 		    flags | ZIO_FLAG_DONT_PROPAGATE);
-		vdev_label_write(zio, vd, l, ubbuf,
-		    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
-		    VDEV_UBERBLOCK_SIZE(vd), vdev_uberblock_sync_done,
-		    zio->io_private, flags | ZIO_FLAG_DONT_PROPAGATE);
+		/*
+		 * XXX POOL_STATE_ACTIVE, we need to protect against multiple
+		 * imports; if EXPORTED or DESTROYED, we do not.   What about
+		 * SPARE, L2CACHE, or others?
+		 * Just checking for ACTIVE has worked so far in brief testing.
+		 */
+		if (vd->vdev_spa->spa_state == POOL_STATE_ACTIVE) {
+			mmp_block_index = VDEV_FIRST_MMP_BLOCK(vd) +
+			    spa_get_random(MMP_BLOCKS_PER_LABEL);
+			vdev_label_write(zio, vd, l, ubbuf,
+			    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
+			    VDEV_UBERBLOCK_SIZE(vd), vdev_uberblock_sync_done,
+			    zio->io_private, flags | ZIO_FLAG_DONT_PROPAGATE);
+		}
 	}
 
 	zio_buf_free(ubbuf, VDEV_UBERBLOCK_SIZE(vd));
