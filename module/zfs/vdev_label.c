@@ -1066,6 +1066,109 @@ vdev_mmpblock_overwrite(zio_t *zio, vdev_t *vd, int flags,
 }
 
 /*
+ * Build array of pointers to leaf vdevs for use writing
+ * MMP blocks.
+ * Do not record pointers to non-leaf vdevs.
+ * Do not record pointers to non-writeable vdevs.
+ */
+
+struct leaf_vdev_array {
+	kmutex	leaf_lock;	/* protects rest of struct */
+	int	max_leaves;
+	int	leaf_count;
+	int	leaf_error;
+	vdev_t	*leaf[1];
+};
+
+void
+add_leaf_to_array(vdev_t *rvd, struct leaf_vdev_array *leaves)
+{
+	for (c = 0; c < vd->vdev_children; c++)
+		add_leaf_to_array(vd->vdev_child[c], leaves);
+
+	if (!vd->vdev_ops->vdev_op_leaf)
+		return;
+
+	if (!vdev_writeable(vd))
+		return;
+
+	mutex_enter(&leaves->leaf_lock);
+	if (leaves->leaf_count<max_leaves)
+		leaves->leaf[leaves->leaf_count++] = rvd;
+	else
+		leaves->leaf_error = SET_ERROR(ENFILE);
+	mutex_exit(&leaves->leaf_lock);
+}
+
+int
+build_leaf_vdev_array(vdev_t *top_level_vdev)
+{
+	spa_t *spa = top_level_vdev->vdev_spa;
+	struct leaf_vdev_array *leaves;
+	/* a little less than 256 pointers, plenty for prototype */
+	const int leaf_array_size = 2048;
+	int rc;
+
+	leaves = kmem_alloc(leaf_array_size, KM_SLEEP);
+	bzero(leaves, leaf_array_size);
+	mutex_init(&leaves->leaf_lock, NULL, MUTEX_DEFAULT, NULL);
+	leaves->max_leaves = 1+(leaf_array_size-sizeof(vdev_t *))/sizeof(vdev_t *);
+
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+	add_leaf_to_array(top_level_vdev, leaves);
+	spa_config_exit(spa, SCL_ALL, FTAG);
+
+	rc = leaves->leaf_error;
+	kmem_free(leaves, leaf_array_size);
+
+	return rc;
+}
+
+/*
+ * Given space for an array of <count> uint64_t, fill the
+ * array with a randomly generated permutation of the
+ * integers [0...<count-1>]
+ * <target> must point to already-allocated space.  It
+ * contents will be overwritten with the permutation.
+ */
+void
+build_leaf_vdev_permutation(int count, uint64_t *target)
+{
+	uint64_t *source;
+	int i;
+	int j;
+	int rand_element;
+
+	source = kmem_alloc(count*sizeof(uint64_t), KM_SLEEP);
+	if (!source)
+		return;
+
+	/* Just to make troubleshooting easier */
+	bzero(source, sizeof(uint64_t)*count);
+	bzero(target, sizeof(uint64_t)*count);
+
+	for (i=0; i<count; i++)
+		source[i] = i;
+	
+	for (i=0; i<count; i++) {
+		rand_element = get_random(count-i);
+		target[i] = source[rand_element];
+		if (rand_element != (count-i))
+			source[rand_element] = source[count-i-1];
+
+	}
+
+	if (0) {	
+		for (j=0; j<count; j++)
+			printf("source[%d] %d  target[%d] %d count-j %d rand_element %d\n",
+				j, source[j], j, target[j], count-j, rand_element);
+		printf("\n\n");
+	}
+
+	kmem_free(source, count*sizeof(uint64_t));
+}
+
+/*
  * Clear all MMP blocks in the pool's leaf vdevs with
  * zeros to enable other nodes to detect that we no longer
  * have the pool open.
@@ -1092,6 +1195,7 @@ vdev_mmpblock_clear_all(vdev_t *rvd)
  * Overwrite all MMP blocks in the pool's leaf vdevs with
  * blocks containing our unique mmp_open_id to enable other
  * nodes to detect that we have opened the pool r/w.
+ * Write the blocks blind - without reading them first.
  */
 
 void
