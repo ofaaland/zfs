@@ -934,6 +934,8 @@ extern void spa_mmp_seq_bump(spa_t *spa);
 extern void spa_mmp_init(mmp_phys_t *mmp);
 
 int spa_mmp_detect_foreign_import(spa_t *spa);
+int spa_mmp_block_permuted_write(spa_t *spa);
+int spa_mmp_takeover(spa_t *spa);
 
 #ifdef	__cplusplus
 }

@@ -752,7 +752,12 @@ zfs_ereport_start_checksum(spa_t *spa, vdev_t *vd,
     struct zio *zio, uint64_t offset, uint64_t length, void *arg,
     zio_bad_cksum_t *info)
 {
+
 	zio_cksum_report_t *report = kmem_zalloc(sizeof (*report), KM_SLEEP);
+
+	ASSERT(zio->io_vsd == NULL || (zio->io_vsd_ops != NULL &&
+		zio->io_vsd_ops->vsd_cksum_report != NULL));
+	ASSERT(zio->io_logical);
 
 	if (zio->io_vsd != NULL)
 		zio->io_vsd_ops->vsd_cksum_report(zio, report, arg);

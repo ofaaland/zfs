@@ -913,32 +913,6 @@ vdev_uberblock_load_done(zio_t *zio)
 }
 
 static void
-vdev_mmpblock_load_done(zio_t *zio)
-{
-	vdev_t *vd = zio->io_vd;
-	spa_t *spa = zio->io_spa;
-	zio_t *rio = zio->io_private;
-	uberblock_t *ub = zio->io_data;
-	mmp_phys_t *mmp_from_disk = (mmp_phys_t *)rio->io_private;
-	mmp_phys_t *spa_mmp = &spa->spa_mmp;
-	mmp_phys_t *ub_mmp = &ub->ub_mmp;
-
-	ASSERT3U(zio->io_size, ==, VDEV_UBERBLOCK_SIZE(vd));
-
-	ASSERT3U(spa_mmp->mmp_magic, ==, MMP_MAGIC);
-
-	if (zio->io_error == 0 && uberblock_verify(ub) == 0) {
-		mutex_enter(&rio->io_lock);
-		if (spa_mmp->mmp_open_id != ub_mmp->mmp_open_id)
-			*mmp_from_disk=*ub_mmp;
-		mutex_exit(&rio->io_lock);
-	}
-
-	zio_buf_free(zio->io_data, zio->io_size);
-}
-
-
-static void
 vdev_uberblock_load_impl(zio_t *zio, vdev_t *vd, int flags,
     struct ubl_cbdata *cbp)
 {
@@ -958,166 +932,6 @@ vdev_uberblock_load_impl(zio_t *zio, vdev_t *vd, int flags,
 			}
 		}
 	}
-}
-
-static void
-vdev_mmpblock_foreign_id_impl(zio_t *zio, vdev_t *vd, int flags)
-{
-	int c, l, n;
-
-	for (c = 0; c < vd->vdev_children; c++)
-		vdev_mmpblock_foreign_id_impl(zio, vd->vdev_child[c], flags);
-
-	if (vd->vdev_ops->vdev_op_leaf && vdev_readable(vd)) {
-		for (l = 0; l < VDEV_LABELS; l++) {
-			for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
-				vdev_label_read(zio, vd, l,
-				    zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd)),
-				    VDEV_UBERBLOCK_OFFSET(vd,
-				    VDEV_FIRST_MMP_BLOCK(vd) + n),
-				    VDEV_UBERBLOCK_SIZE(vd),
-				    vdev_mmpblock_load_done, zio, flags);
-			}
-		}
-	}
-}
-
-int
-vdev_mmpblock_foreign_id(vdev_t *rvd)
-{
-	zio_t *zio;
-	spa_t *spa = rvd->vdev_spa;
-	mmp_phys_t mmp_from_disk = spa->spa_mmp;
-	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
-	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
-	char msg[512];
-
-	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-	zio = zio_root(spa, NULL, &mmp_from_disk, flags);
-	vdev_mmpblock_foreign_id_impl(zio, rvd, flags);
-	(void) zio_wait(zio);
-
-	spa_config_exit(spa, SCL_ALL, FTAG);
-
-	if (mmp_from_disk.mmp_open_id != spa->spa_mmp.mmp_open_id) {
-		snprintf(msg, sizeof(msg),
-			"Foreign ID found in MMP block:\n"
-			"me: open_id=%llu\n"
-			"foreign: magic=%llx\n"
-			"open_id=%lld\n"
-			"seq=%lld\n"
-			"op=%d\n"
-			"nodename=%s\n", (long long unsigned int) spa->spa_mmp.mmp_open_id,
-			(long long unsigned int) mmp_from_disk.mmp_magic,
-			(long long unsigned int) mmp_from_disk.mmp_open_id,
-			(long long unsigned int) mmp_from_disk.mmp_seq,
-			mmp_from_disk.mmp_op,
-			mmp_from_disk.mmp_nodename);
-		dprintf(msg);
-#ifdef _KERNEL
-		printk(msg);
-#endif
-		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
-	}
-
-	return 0;
-}
-
-/*
- * Overwrite all MMP blocks in the pool's leaf vdevs with
- * blocks containing the provided ubbuf, or zero them, if
- * ubbuf is NULL.
- */
-static void
-vdev_mmpblock_overwrite(zio_t *zio, vdev_t *vd, int flags,
-				 uberblock_t *ubbuf)
-{
-	uberblock_t *zbuf;
-	int c, l, mmp_block_index;
-
-	for (c = 0; c < vd->vdev_children; c++)
-		vdev_mmpblock_overwrite(zio, vd->vdev_child[c], flags,
-						 ubbuf);
-
-	if (!vd->vdev_ops->vdev_op_leaf)
-		return;
-
-	if (!vdev_writeable(vd))
-		return;
-
-	zbuf = zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd));
-	bzero(zbuf, VDEV_UBERBLOCK_SIZE(vd));
-
-	if (ubbuf)
-		bcopy(ubbuf, zbuf, sizeof(uberblock_t));
-
-	for (l = 0; l < VDEV_LABELS; l++) {
-		int m;
-		for (m = 0; m < MMP_BLOCKS_PER_LABEL; m++) {
-			mmp_block_index = VDEV_FIRST_MMP_BLOCK(vd) + m;
-			vdev_label_write(zio, vd, l, zbuf,
-			    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
-			    VDEV_UBERBLOCK_SIZE(vd), NULL, zio->io_private,
-			    flags | ZIO_FLAG_DONT_PROPAGATE);
-		}
-	}
-
-	zio_buf_free(zbuf, VDEV_UBERBLOCK_SIZE(vd));
-}
-
-/*
- * Clear all MMP blocks in the pool's leaf vdevs with
- * zeros to enable other nodes to detect that we no longer
- * have the pool open.
- */
-
-void
-vdev_mmpblock_clear_all(vdev_t *rvd)
-{
-	zio_t *zio;
-	spa_t *spa = rvd->vdev_spa;
-	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
-	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
-
-	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-	zio = zio_root(spa, NULL, NULL, flags);
-
-	vdev_mmpblock_overwrite(zio, rvd, flags, NULL);
-	(void) zio_wait(zio);
-
-	spa_config_exit(spa, SCL_ALL, FTAG);
-}
-
-/*
- * Overwrite all MMP blocks in the pool's leaf vdevs with
- * blocks containing our unique mmp_open_id to enable other
- * nodes to detect that we have opened the pool r/w.
- */
-
-void
-vdev_mmpblock_store_open_id(vdev_t *rvd)
-{
-	zio_t *zio;
-	spa_t *spa = rvd->vdev_spa;
-	uberblock_t *ubbuf;
-	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
-	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
-
-	ubbuf = kmem_alloc(sizeof(uberblock_t), KM_SLEEP);
-	bzero(ubbuf, sizeof(uberblock_t));
-	ubbuf->ub_mmp.mmp_magic = MMP_MAGIC;
-	ubbuf->ub_mmp.mmp_open_id = rvd->vdev_spa->spa_mmp.mmp_open_id;
-	ubbuf->ub_mmp.mmp_op = MO_IMPORT_ATTEMPT;
-	ubbuf->ub_magic = UBERBLOCK_MAGIC;
-
-	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-	zio = zio_root(spa, NULL, NULL, flags);
-
-	vdev_mmpblock_overwrite(zio, rvd, flags, ubbuf);
-	(void) zio_wait(zio);
-
-	spa_config_exit(spa, SCL_ALL, FTAG);
-	kmem_free(ubbuf, sizeof(uberblock_t));
 }
 
 /*
@@ -1489,4 +1303,479 @@ retry:
 		goto retry;
 
 	return (0);
+}
+
+static void
+vdev_mmpblock_load_done(zio_t *zio)
+{
+	vdev_t *vd = zio->io_vd;
+	/* data from disk */
+	uberblock_t *ub = zio->io_data;
+	mmp_phys_t *ub_mmp = &ub->ub_mmp;
+
+	/* data in spa */
+	spa_t *spa = zio->io_spa;
+	mmp_phys_t *spa_mmp = &spa->spa_mmp;
+
+	/* used to report back to caller */
+	zio_t *rio = zio->io_private;
+	mmp_phys_t *report_to_caller = (mmp_phys_t *)rio->io_private;
+
+	ASSERT3U(zio->io_size, ==, VDEV_UBERBLOCK_SIZE(vd));
+
+	ASSERT3U(spa_mmp->mmp_magic, ==, MMP_MAGIC);
+
+	if (zio->io_error == 0 && uberblock_verify(ub) == 0) {
+		mutex_enter(&rio->io_lock);
+		/*
+		 * If we find a foreign mmp_open_id, copy the entire mmp block
+		 * into report_to_caller, so we can use the nodename etc. to
+		 * help the user identify the competing node(s).
+		 */
+		if (spa_mmp->mmp_open_id != ub_mmp->mmp_open_id)
+			*report_to_caller=*ub_mmp;
+		mutex_exit(&rio->io_lock);
+	}
+
+	zio_buf_free(zio->io_data, zio->io_size);
+}
+
+
+static void
+vdev_mmpblock_foreign_id_impl(zio_t *zio, vdev_t *vd, int flags)
+{
+	int c, l, n;
+
+	for (c = 0; c < vd->vdev_children; c++)
+		vdev_mmpblock_foreign_id_impl(zio, vd->vdev_child[c], flags);
+
+	if (vd->vdev_ops->vdev_op_leaf && vdev_readable(vd)) {
+		for (l = 0; l < VDEV_LABELS; l++) {
+			for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
+				vdev_label_read(zio, vd, l,
+				    zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd)),
+				    VDEV_UBERBLOCK_OFFSET(vd,
+				    VDEV_FIRST_MMP_BLOCK(vd) + n),
+				    VDEV_UBERBLOCK_SIZE(vd),
+				    vdev_mmpblock_load_done, zio, flags);
+			}
+		}
+	}
+}
+
+int
+vdev_mmpblock_foreign_id(vdev_t *rvd)
+{
+	zio_t *zio;
+	spa_t *spa = rvd->vdev_spa;
+	mmp_phys_t mmp_from_disk = spa->spa_mmp;
+	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
+	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
+	char msg[512];
+
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+	zio = zio_root(spa, NULL, &mmp_from_disk, flags);
+	vdev_mmpblock_foreign_id_impl(zio, rvd, flags);
+	(void) zio_wait(zio);
+
+	spa_config_exit(spa, SCL_ALL, FTAG);
+
+	if (mmp_from_disk.mmp_open_id != spa->spa_mmp.mmp_open_id) {
+		snprintf(msg, sizeof(msg),
+			"Foreign ID found in MMP block:\n"
+			"me: open_id=%llu\n"
+			"foreign: magic=%llx\n"
+			"open_id=%lld\n"
+			"seq=%lld\n"
+			"op=%d\n"
+			"nodename=%s\n", (long long unsigned int) spa->spa_mmp.mmp_open_id,
+			(long long unsigned int) mmp_from_disk.mmp_magic,
+			(long long unsigned int) mmp_from_disk.mmp_open_id,
+			(long long unsigned int) mmp_from_disk.mmp_seq,
+			mmp_from_disk.mmp_op,
+			mmp_from_disk.mmp_nodename);
+		dprintf(msg);
+#ifdef _KERNEL
+		printk(msg);
+#endif
+		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
+	}
+
+	return 0;
+}
+
+static int
+fubar_vdev_mmpblock_check_and_set(vdev_t *vd, int mmp_block_index_in_vdev)
+{
+	int rc;
+	//int flags = ZIO_FLAG_TRYHARD | ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_DONT_PROPAGATE;
+	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
+	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
+	int label = mmp_block_index_in_vdev / MMP_BLOCKS_PER_LABEL;
+	int mmp_block_index = mmp_block_index_in_vdev % MMP_BLOCKS_PER_LABEL;
+	zio_t *zio;
+	uberblock_t *zbuf;
+	spa_t *spa = vd->vdev_spa;
+	mmp_phys_t mmp_from_disk = spa->spa_mmp;
+
+	ASSERT(mmp_block_index_in_vdev < VDEV_LABELS*MMP_BLOCKS_PER_LABEL);
+	ASSERT(label < VDEV_LABELS);
+	ASSERT(mmp_block_index < MMP_BLOCKS_PER_LABEL);
+	ASSERT(vd->vdev_ops->vdev_op_leaf);
+	/* config lock must also be held, but vdev_label_write asserts this */
+
+	zio = zio_root(spa, NULL, &mmp_from_disk, flags);
+	zbuf = zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd));
+
+#ifdef _KERNEL
+	printk("check_and_set() index_in_vdev %d label %d mmp_block_index %d\n",
+		mmp_block_index_in_vdev, label, mmp_block_index);
+#endif
+	vdev_label_read(zio, vd, label, zbuf,
+	    VDEV_UBERBLOCK_OFFSET(vd, VDEV_FIRST_MMP_BLOCK(vd) + mmp_block_index),
+	    VDEV_UBERBLOCK_SIZE(vd),
+	    vdev_mmpblock_load_done, zio, flags);
+	(void) zio_wait(zio);
+
+	if (mmp_from_disk.mmp_open_id != spa->spa_mmp.mmp_open_id) {
+		rc = SET_ERROR(EBUSY);
+		goto out;
+	}
+
+	/* Not marked by foreign node, so we mark it with our ID */
+	bzero(zbuf, VDEV_UBERBLOCK_SIZE(vd));
+	zbuf->ub_mmp = spa->spa_mmp;
+
+	/*
+	vdev_label_write(zio, vd, label, zbuf,
+	    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
+	    VDEV_UBERBLOCK_SIZE(vd), NULL, zio,
+	    flags);
+
+	(void) zio_wait(zio);
+	*/
+	rc = 0;
+
+out:
+
+	return rc;
+}
+
+static int
+vdev_mmpblock_check_and_set(vdev_t *vd, int mmp_block_index_in_vdev)
+{
+	int rc;
+	/*
+	 * rio,rbuf for read
+	 * wio,wbuf for write
+	 */
+	uberblock_t *rbuf;
+	zio_t *rio;
+	uberblock_t *wbuf;
+	zio_t *wio;
+	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL | ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
+	spa_t *spa = vd->vdev_spa;
+	mmp_phys_t mmp_from_disk = spa->spa_mmp;
+	int label = mmp_block_index_in_vdev / MMP_BLOCKS_PER_LABEL;
+	int mmp_block_index = mmp_block_index_in_vdev % MMP_BLOCKS_PER_LABEL;
+
+	ASSERT(vd);
+	ASSERT(vd->vdev_ops);
+	ASSERT(mmp_block_index_in_vdev < VDEV_LABELS*MMP_BLOCKS_PER_LABEL);
+	ASSERT(vd->vdev_ops->vdev_op_leaf);
+
+	/*
+	 * If only a small fraction of the leaf vdevs are not readable, 
+	 * then checking and setting the MMP blocks on the rest will
+	 * achieve our goal.  If a large fraction are not readable,
+	 * the pool will not be imported.  No need to make this an error here.
+	 */
+	if (!vdev_readable(vd)) {
+		return 0;
+		}
+
+	rbuf = zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd));
+	rio = zio_root(spa, NULL, &mmp_from_disk, flags);
+
+/*
+	vdev_label_read(rio, vd, label, rbuf,
+	    VDEV_UBERBLOCK_OFFSET(vd, VDEV_FIRST_MMP_BLOCK(vd) + mmp_block_index),
+	    VDEV_UBERBLOCK_SIZE(vd),
+	    vdev_mmpblock_load_done, rio, flags | ZIO_FLAG_DONT_PROPAGATE);
+*/
+	(void) zio_wait(rio);
+	zio_buf_free(rbuf, VDEV_UBERBLOCK_SIZE(vd));
+
+	wbuf = zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd));
+	bzero(wbuf, VDEV_UBERBLOCK_SIZE(vd));
+	wbuf->ub_mmp = spa->spa_mmp;
+	wio = zio_root(spa, NULL, &mmp_from_disk, flags);
+
+	/* write would go here */
+
+	(void) zio_wait(wio);
+	zio_buf_free(rbuf, VDEV_UBERBLOCK_SIZE(vd));
+
+	/* just to quiet warning about unused function/variable */
+	rc = label*mmp_block_index*0;
+	if (0)
+		fubar_vdev_mmpblock_check_and_set(vd, mmp_block_index_in_vdev);
+
+	return rc;
+}
+
+/*
+ * Overwrite all MMP blocks in the pool's leaf vdevs with
+ * blocks containing the provided ubbuf, or zero them, if
+ * ubbuf is NULL.
+ */
+static void
+vdev_mmpblock_overwrite(zio_t *zio, vdev_t *vd, int flags,
+			uberblock_t *ubbuf)
+{
+	uberblock_t *zbuf;
+	int c, l, mmp_block_index;
+
+	for (c = 0; c < vd->vdev_children; c++)
+		vdev_mmpblock_overwrite(zio, vd->vdev_child[c], flags,
+						 ubbuf);
+
+	if (!vd->vdev_ops->vdev_op_leaf)
+		return;
+
+	if (!vdev_writeable(vd))
+		return;
+
+	zbuf = zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd));
+	bzero(zbuf, VDEV_UBERBLOCK_SIZE(vd));
+
+	if (ubbuf)
+		bcopy(ubbuf, zbuf, sizeof(uberblock_t));
+
+	for (l = 0; l < VDEV_LABELS; l++) {
+		int m;
+		for (m = 0; m < MMP_BLOCKS_PER_LABEL; m++) {
+			mmp_block_index = VDEV_FIRST_MMP_BLOCK(vd) + m;
+			vdev_label_write(zio, vd, l, zbuf,
+			    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
+			    VDEV_UBERBLOCK_SIZE(vd), NULL, zio->io_private,
+			    flags | ZIO_FLAG_DONT_PROPAGATE);
+		}
+	}
+
+	zio_buf_free(zbuf, VDEV_UBERBLOCK_SIZE(vd));
+}
+
+/*
+ * Build array of pointers to leaf vdevs for use writing
+ * MMP blocks.
+ * Do not record pointers to non-leaf vdevs.
+ * Do not record pointers to non-writeable vdevs.
+ */
+
+struct leaf_vdev_array {
+	kmutex_t	leaf_lock;	/* protects rest of struct */
+	int		max_leaves;
+	int		leaf_count;
+	int		leaf_error;
+	vdev_t		*leaf[1];
+};
+
+void
+add_leaf_to_array(vdev_t *rvd, struct leaf_vdev_array *leaves)
+{
+	int c;
+
+	ASSERT(spa_config_held(rvd->vdev_spa, SCL_STATE_ALL, RW_WRITER));
+
+	for (c = 0; c < rvd->vdev_children; c++)
+		add_leaf_to_array(rvd->vdev_child[c], leaves);
+
+	if (!rvd->vdev_ops->vdev_op_leaf)
+		return;
+
+	if (!vdev_writeable(rvd))
+		return;
+
+	if (rvd->vdev_isl2cache)
+		return;
+
+	mutex_enter(&leaves->leaf_lock);
+	if (leaves->leaf_count < leaves->max_leaves)
+		leaves->leaf[leaves->leaf_count++] = rvd;
+	else
+		leaves->leaf_error = SET_ERROR(ENFILE);
+	mutex_exit(&leaves->leaf_lock);
+}
+
+/*
+ * Given space for an array of <count> uint64_t, fill the
+ * array with a randomly generated permutation of the
+ * integers [0...<count-1>]
+ * <target> must point to already-allocated space.  It's
+ * contents will be overwritten with the permutation.
+ */
+void
+create_random_permutation(int count, uint64_t *target)
+{
+	uint64_t *source;
+	int rand_element;
+	int i;
+
+	source = kmem_alloc(count*sizeof(uint64_t), KM_SLEEP);
+	if (!source)
+		return;
+
+	/* Just to make troubleshooting easier */
+	bzero(source, sizeof(uint64_t)*count);
+	bzero(target, sizeof(uint64_t)*count);
+
+	for (i=0; i<count; i++)
+		source[i] = i;
+	
+	for (i=0; i<count; i++) {
+		rand_element = spa_get_random(count-i);
+		target[i] = source[rand_element];
+		source[rand_element] = source[count-i-1];
+	}
+
+	kmem_free(source, count*sizeof(uint64_t));
+}
+
+int
+vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
+{
+	spa_t *spa = top_level_vdev->vdev_spa;
+	uint64_t *permutation = NULL;
+	struct leaf_vdev_array *leaf_vdev_array = NULL;
+	/* XXX a little less than 256 pointers, plenty for prototype */
+	const int leaf_array_size = 2048;
+	int permutation_size;
+	int vdev_index;
+	int mmp_block_index_in_vdev;
+	int mmp_block_index;
+	int mmp_result;
+	int rc;
+	int i;
+
+	/* allocate space for array of pointers to vdevs */
+	leaf_vdev_array = kmem_alloc(leaf_array_size, KM_SLEEP);
+	bzero(leaf_vdev_array, leaf_array_size);
+	mutex_init(&leaf_vdev_array->leaf_lock, NULL, MUTEX_DEFAULT, NULL);
+	leaf_vdev_array->max_leaves = 1 +
+		(leaf_array_size-sizeof(struct leaf_vdev_array))/sizeof(vdev_t *);
+
+	/* array of pointers valid only while config lock held */
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+
+	add_leaf_to_array(top_level_vdev, leaf_vdev_array);
+	rc = leaf_vdev_array->leaf_error;
+	if (rc)
+		goto release_config_lock;
+
+	/*
+	 * Now we know # of leaf vdevs, create permutation. Should we allocate
+	 * prior to taking the lock, ie guess/allocate/lock/unlock/repeat if too small?
+	 * permutation_size is total # of mmp blocks.
+	 */
+	permutation_size = leaf_vdev_array->leaf_count * VDEV_LABELS * MMP_BLOCKS_PER_LABEL;
+	permutation = kmem_alloc(permutation_size*sizeof(uint64_t), KM_SLEEP);
+	create_random_permutation(permutation_size, permutation);
+
+#ifdef _KERNEL
+	printk("Reading and Writing MMP blocks in permutation order.\n");
+#endif
+
+	/* Now walk through permutation in order, writing MMP block specified */
+	for (i=0; i<permutation_size; i++) {
+
+		mmp_block_index = permutation[i];
+		vdev_index = mmp_block_index / (VDEV_LABELS * MMP_BLOCKS_PER_LABEL);
+		mmp_block_index_in_vdev = mmp_block_index % (VDEV_LABELS * MMP_BLOCKS_PER_LABEL);
+		mmp_result = vdev_mmpblock_check_and_set(leaf_vdev_array->leaf[vdev_index], mmp_block_index_in_vdev);
+
+		if (mmp_result<0) {
+			/* read or write failed */
+			rc = SET_ERROR(EIO);
+			goto release_config_lock;
+		} else if (mmp_result>0) {
+			/* found foreign ID */
+			rc = SET_ERROR(EBUSY);
+			goto release_config_lock;
+		}
+	}
+
+	/* Found no foreign ID, all MMP blocks have our ID now */
+	rc = 0;
+
+release_config_lock:
+	spa_config_exit(spa, SCL_ALL, FTAG);
+	if (leaf_vdev_array)
+		kmem_free(leaf_vdev_array, leaf_array_size);
+	if (permutation)
+		kmem_free(permutation, leaf_array_size);
+
+	return rc;
+}
+
+int
+vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
+{
+	return 0;
+}
+
+/*
+ * Clear all MMP blocks in the pool's leaf vdevs with
+ * zeros to enable other nodes to detect that we no longer
+ * have the pool open.
+ */
+
+void
+vdev_mmpblock_clear_all(vdev_t *rvd)
+{
+	zio_t *zio;
+	spa_t *spa = rvd->vdev_spa;
+	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
+	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
+
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+	zio = zio_root(spa, NULL, NULL, flags);
+
+	vdev_mmpblock_overwrite(zio, rvd, flags, NULL);
+	(void) zio_wait(zio);
+
+	spa_config_exit(spa, SCL_ALL, FTAG);
+}
+
+/*
+ * Overwrite all MMP blocks in the pool's leaf vdevs with
+ * blocks containing our unique mmp_open_id to enable other
+ * nodes to detect that we have opened the pool r/w.
+ * Write the blocks blind - without reading them first.
+ */
+
+void
+vdev_mmpblock_store_open_id(vdev_t *rvd)
+{
+	zio_t *zio;
+	spa_t *spa = rvd->vdev_spa;
+	uberblock_t *ubbuf;
+	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
+	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
+
+	ubbuf = kmem_alloc(sizeof(uberblock_t), KM_SLEEP);
+	bzero(ubbuf, sizeof(uberblock_t));
+	ubbuf->ub_mmp.mmp_magic = MMP_MAGIC;
+	ubbuf->ub_mmp.mmp_open_id = rvd->vdev_spa->spa_mmp.mmp_open_id;
+	ubbuf->ub_mmp.mmp_op = MO_IMPORT_ATTEMPT;
+	ubbuf->ub_magic = UBERBLOCK_MAGIC;
+
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+	zio = zio_root(spa, NULL, NULL, flags);
+
+	vdev_mmpblock_overwrite(zio, rvd, flags, ubbuf);
+	(void) zio_wait(zio);
+
+	spa_config_exit(spa, SCL_ALL, FTAG);
+	kmem_free(ubbuf, sizeof(uberblock_t));
 }

@@ -2798,16 +2798,15 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 			    error));
 	}
 
-	/* XXX check for foreign import but do nothing for now */
-	(void) vdev_mmpblock_foreign_id(spa->spa_root_vdev);
-
 	if (spa_writeable(spa)) {
 		spa_mmp_init_open_id(&spa->spa_mmp);
 
-		/* Write out all MMP blocks with our import ID. */
-		vdev_mmpblock_store_open_id(spa->spa_root_vdev);
+		/*
+		 * Attempt to take over the pool via MMP.
+		 * XXX For now, do nothing if this fails; need to fix this.
+		 */
+		(void) spa_mmp_takeover(spa);
 	}
-
 
 	if (spa_writeable(spa) && (state == SPA_LOAD_RECOVER ||
 	    spa->spa_load_max_txg == UINT64_MAX)) {
@@ -6814,6 +6813,34 @@ spa_mmp_seq_bump(spa_t *spa)
 	mutex_enter(&spa->spa_mmp_lock);
 	spa->spa_mmp.mmp_seq++;
 	mutex_exit(&spa->spa_mmp_lock);
+}
+
+int
+spa_mmp_takeover(spa_t *spa)
+{
+	int rc;
+
+	/*
+	 * 1. Check for foreign IDs.
+	 * 2. If we find some, wait for a while to see if MMP blocks are being
+	 * updated, and quit if so.
+	 * 3. Overwrite the MMP blocks serially, in a random order, reading first
+	 * in a compare-and-swap manner.  If one is found that is not clean,
+	 * return 0; otherwise return EBUSY.
+	 */
+
+	rc = vdev_mmpblock_foreign_id(spa->spa_root_vdev);
+
+	if (rc && rc != EBUSY)
+		return rc;
+
+	if (rc)
+		rc = vdev_mmp_watch_for_activity(spa->spa_root_vdev);
+
+	if (rc)
+		return rc;
+
+	return vdev_mmp_block_permuted_write(spa->spa_root_vdev);
 }
 
 int
