@@ -1272,7 +1272,8 @@ spa_unload(spa_t *spa)
 	/*
 	 * Issue MMP block writes to indicate pool not imported
 	 */
-	vdev_mmpblock_clear_all(spa->spa_root_vdev);
+	if (spa->spa_root_vdev)
+		vdev_mmpblock_clear_all(spa->spa_root_vdev);
 
 	/*
 	 * Stop async tasks.
