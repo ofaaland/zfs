@@ -1405,63 +1405,6 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 }
 
 static int
-fubar_vdev_mmpblock_check_and_set(vdev_t *vd, int mmp_block_index_in_vdev)
-{
-	int rc;
-	//int flags = ZIO_FLAG_TRYHARD | ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_DONT_PROPAGATE;
-	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
-	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
-	int label = mmp_block_index_in_vdev / MMP_BLOCKS_PER_LABEL;
-	int mmp_block_index = mmp_block_index_in_vdev % MMP_BLOCKS_PER_LABEL;
-	zio_t *zio;
-	uberblock_t *zbuf;
-	spa_t *spa = vd->vdev_spa;
-	mmp_phys_t mmp_from_disk = spa->spa_mmp;
-
-	ASSERT(mmp_block_index_in_vdev < VDEV_LABELS*MMP_BLOCKS_PER_LABEL);
-	ASSERT(label < VDEV_LABELS);
-	ASSERT(mmp_block_index < MMP_BLOCKS_PER_LABEL);
-	ASSERT(vd->vdev_ops->vdev_op_leaf);
-	/* config lock must also be held, but vdev_label_write asserts this */
-
-	zio = zio_root(spa, NULL, &mmp_from_disk, flags);
-	zbuf = zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd));
-
-#ifdef _KERNEL
-	printk("check_and_set() index_in_vdev %d label %d mmp_block_index %d\n",
-		mmp_block_index_in_vdev, label, mmp_block_index);
-#endif
-	vdev_label_read(zio, vd, label, zbuf,
-	    VDEV_UBERBLOCK_OFFSET(vd, VDEV_FIRST_MMP_BLOCK(vd) + mmp_block_index),
-	    VDEV_UBERBLOCK_SIZE(vd),
-	    vdev_mmpblock_load_done, zio, flags);
-	(void) zio_wait(zio);
-
-	if (mmp_from_disk.mmp_open_id != spa->spa_mmp.mmp_open_id) {
-		rc = SET_ERROR(EBUSY);
-		goto out;
-	}
-
-	/* Not marked by foreign node, so we mark it with our ID */
-	bzero(zbuf, VDEV_UBERBLOCK_SIZE(vd));
-	zbuf->ub_mmp = spa->spa_mmp;
-
-	/*
-	vdev_label_write(zio, vd, label, zbuf,
-	    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
-	    VDEV_UBERBLOCK_SIZE(vd), NULL, zio,
-	    flags);
-
-	(void) zio_wait(zio);
-	*/
-	rc = 0;
-
-out:
-
-	return rc;
-}
-
-static int
 vdev_mmpblock_check_and_set(vdev_t *vd, int mmp_block_index_in_vdev)
 {
 	int rc;
@@ -1518,8 +1461,6 @@ vdev_mmpblock_check_and_set(vdev_t *vd, int mmp_block_index_in_vdev)
 
 	/* just to quiet warning about unused function/variable */
 	rc = label*mmp_block_index*0;
-	if (0)
-		fubar_vdev_mmpblock_check_and_set(vd, mmp_block_index_in_vdev);
 
 	return rc;
 }
