@@ -1340,6 +1340,28 @@ vdev_mmpblock_load_done(zio_t *zio)
 	zio_buf_free(zio->io_data, zio->io_size);
 }
 
+static void
+vdev_mmpblock_foreign_id_check(zio_t *zio, vdev_t *vd, int flags, int mmp_block)
+{
+	int l = mmp_block / MMP_BLOCKS_PER_LABEL;
+	int n = mmp_block % MMP_BLOCKS_PER_LABEL;
+
+	ASSERT(vd);
+	ASSERT(l < VDEV_LABELS);
+	ASSERT(n < MMP_BLOCKS_PER_LABEL);
+
+	ASSERT ( !((vd->vdev_state <= VDEV_STATE_CANT_OPEN) ||
+	     (vd->vdev_children) ||
+	     (!vd->vdev_ops->vdev_op_leaf) ||
+	     (!vdev_readable(vd))));
+
+	vdev_label_read(zio, vd, l,
+	    zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd)),
+	    VDEV_UBERBLOCK_OFFSET(vd,
+	    VDEV_FIRST_MMP_BLOCK(vd) + n),
+	    VDEV_UBERBLOCK_SIZE(vd),
+	    vdev_mmpblock_load_done, zio, flags);
+}
 
 static void
 vdev_mmpblock_foreign_id_impl(zio_t *zio, vdev_t *vd, int flags)
@@ -1602,6 +1624,7 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 	int rc;
 	int i;
 	zio_t *zio;
+	char msg[256];
 
 	/* allocate space for array of pointers to vdevs */
 	leaf_vdev_array = kmem_alloc(leaf_array_size, KM_SLEEP);
@@ -1642,9 +1665,30 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 			mmp_result = vdev_mmpblock_check_and_set(leaf_vdev_array->leaf[vdev_index], mmp_block_index_in_vdev);
 		if (1) {
 			zio = zio_root(spa, NULL, &mmp_from_disk, flags);
-			vdev_mmpblock_foreign_id_impl(zio, leaf_vdev_array->leaf[vdev_index], flags);
+			vdev_mmpblock_foreign_id_check(zio, leaf_vdev_array->leaf[vdev_index], flags,
+						       mmp_block_index_in_vdev);
 			(void) zio_wait(zio);
+			if (mmp_from_disk.mmp_open_id != spa->spa_mmp.mmp_open_id) {
+				snprintf(msg, sizeof(msg),
+					"Foreign ID found in MMP block:\n"
+					"me: open_id=%llu\n"
+					"foreign: magic=%llx\n"
+					"open_id=%lld\n"
+					"seq=%lld\n"
+					"op=%d\n"
+					"nodename=%s\n", (long long unsigned int) spa->spa_mmp.mmp_open_id,
+					(long long unsigned int) mmp_from_disk.mmp_magic,
+					(long long unsigned int) mmp_from_disk.mmp_open_id,
+					(long long unsigned int) mmp_from_disk.mmp_seq,
+					mmp_from_disk.mmp_op,
+					mmp_from_disk.mmp_nodename);
+				dprintf(msg);
+		#ifdef _KERNEL
+				printk(msg);
+		#endif
+				return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 			}
+		}
 
 		if (mmp_result<0) {
 			/* read or write failed */
