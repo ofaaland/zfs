@@ -1686,7 +1686,8 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 		#ifdef _KERNEL
 				printk(msg);
 		#endif
-				return (SET_ERROR(EBUSY)); /* XXX choose a good error */
+				rc = SET_ERROR(EBUSY); /* XXX choose a good error */
+				goto release_config_lock;
 			}
 		}
 
