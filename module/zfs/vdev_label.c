@@ -1673,11 +1673,13 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 					"Foreign ID found in MMP block:\n"
 					"me: open_id=%llu\n"
 					"foreign: magic=%llx\n"
+					"mmp block=%d\n"
 					"open_id=%lld\n"
 					"seq=%lld\n"
 					"op=%d\n"
 					"nodename=%s\n", (long long unsigned int) spa->spa_mmp.mmp_open_id,
 					(long long unsigned int) mmp_from_disk.mmp_magic,
+					mmp_block_index_in_vdev,
 					(long long unsigned int) mmp_from_disk.mmp_open_id,
 					(long long unsigned int) mmp_from_disk.mmp_seq,
 					mmp_from_disk.mmp_op,
