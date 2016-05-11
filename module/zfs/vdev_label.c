@@ -1306,6 +1306,21 @@ retry:
 }
 
 static void
+
+mmp_ubbuf_setup(vdev_t *rvd, uberblock_t *ubbuf)
+{
+	ASSERT(ubbuf);
+	ASSERT(rvd);
+	ASSERT(rvd->vdev_spa);
+
+	bzero(ubbuf, sizeof(uberblock_t));
+	ubbuf->ub_mmp.mmp_magic = MMP_MAGIC;
+	ubbuf->ub_mmp.mmp_open_id = rvd->vdev_spa->spa_mmp.mmp_open_id;
+	ubbuf->ub_mmp.mmp_op = MO_IMPORT_ATTEMPT;
+	ubbuf->ub_magic = UBERBLOCK_MAGIC;
+}
+
+static void
 vdev_mmpblock_load_done(zio_t *zio)
 {
 	vdev_t *vd = zio->io_vd;
@@ -1487,6 +1502,47 @@ vdev_mmpblock_check_and_set(vdev_t *vd, int mmp_block_index_in_vdev)
 	return rc;
 }
 
+static void
+vdev_mmpblock_overwrite_single(zio_t *zio, vdev_t *vd, int flags,
+			uberblock_t *ubbuf, int mmp_block)
+{
+	uberblock_t *zbuf;
+	int l = mmp_block / MMP_BLOCKS_PER_LABEL;
+	int n = mmp_block % MMP_BLOCKS_PER_LABEL;
+	int mmp_block_index;
+
+	ASSERT(vd);
+	ASSERT(l < VDEV_LABELS);
+	ASSERT(n < MMP_BLOCKS_PER_LABEL);
+
+	ASSERT( !((vd->vdev_state <= VDEV_STATE_CANT_OPEN) ||
+	     (vd->vdev_children) ||
+	     (!vd->vdev_ops->vdev_op_leaf) ||
+	     (!vdev_writeable(vd))));
+
+	ASSERT(ubbuf->ub_mmp.mmp_magic == MMP_MAGIC &&
+		ubbuf->ub_magic == UBERBLOCK_MAGIC);
+
+	zbuf = zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd));
+	bzero(zbuf, VDEV_UBERBLOCK_SIZE(vd));
+
+	if (ubbuf)
+		bcopy(ubbuf, zbuf, sizeof(uberblock_t));
+
+	mmp_block_index = VDEV_FIRST_MMP_BLOCK(vd) + n;
+	vdev_label_write(zio, vd, l, zbuf,
+	    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
+	    VDEV_UBERBLOCK_SIZE(vd), NULL, zio->io_private,
+	    flags | ZIO_FLAG_DONT_PROPAGATE);
+
+	zio_buf_free(zbuf, VDEV_UBERBLOCK_SIZE(vd));
+
+	#ifdef _KERNEL
+			printk("vdev_mmpblock_overwrite_single() wrote mmp_block %d\n",
+				mmp_block);
+	#endif
+}
+
 /*
  * Overwrite all MMP blocks in the pool's leaf vdevs with
  * blocks containing the provided ubbuf, or zero them, if
@@ -1608,6 +1664,7 @@ create_random_permutation(int count, uint64_t *target)
 int
 vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 {
+	uberblock_t *ubbuf = NULL;
 	spa_t *spa = top_level_vdev->vdev_spa;
 	mmp_phys_t mmp_from_disk = spa->spa_mmp;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
@@ -1628,10 +1685,22 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 
 	/* allocate space for array of pointers to vdevs */
 	leaf_vdev_array = kmem_alloc(leaf_array_size, KM_SLEEP);
+	if (!leaf_vdev_array) {
+		rc = SET_ERROR(ENOMEM);
+		goto release_config_lock;
+	}
+
 	bzero(leaf_vdev_array, leaf_array_size);
 	mutex_init(&leaf_vdev_array->leaf_lock, NULL, MUTEX_DEFAULT, NULL);
 	leaf_vdev_array->max_leaves = 1 +
 		(leaf_array_size-sizeof(struct leaf_vdev_array))/sizeof(vdev_t *);
+
+	ubbuf = kmem_alloc(sizeof(uberblock_t), KM_SLEEP);
+	if (!ubbuf) {
+		rc = SET_ERROR(ENOMEM);
+		goto release_config_lock;
+	}
+	mmp_ubbuf_setup(top_level_vdev, ubbuf);
 
 	/* array of pointers valid only while config lock held */
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
@@ -1651,7 +1720,7 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 	create_random_permutation(permutation_size, permutation);
 
 #ifdef _KERNEL
-	printk("Reading and Writing MMP blocks in permutation order.\n");
+	printk("Reading and Writing %d MMP blocks in permutation order.\n", permutation_size);
 #endif
 
 	/* Now walk through permutation in order, writing MMP block specified */
@@ -1690,6 +1759,11 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 		#endif
 				rc = SET_ERROR(EBUSY); /* XXX choose a good error */
 				goto release_config_lock;
+
+			zio = zio_root(spa, NULL, NULL, flags);
+			vdev_mmpblock_overwrite_single(zio, leaf_vdev_array->leaf[vdev_index],
+						       flags, ubbuf, mmp_block_index_in_vdev);
+			(void) zio_wait(zio);
 			}
 		}
 
@@ -1709,12 +1783,20 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 
 release_config_lock:
 	spa_config_exit(spa, SCL_ALL, FTAG);
+
+	#ifdef _KERNEL
+		if (rc)
+			printk("permuted write failed with rc: %d\n", rc);
+	#endif
+
+	if (ubbuf)
+		kmem_free(ubbuf, sizeof(uberblock_t));
 	if (leaf_vdev_array)
 		kmem_free(leaf_vdev_array, leaf_array_size);
 	if (permutation)
 		kmem_free(permutation, leaf_array_size);
 
-	return rc;
+	return (rc);
 }
 
 int
@@ -1763,11 +1845,9 @@ vdev_mmpblock_store_open_id(vdev_t *rvd)
 	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
 
 	ubbuf = kmem_alloc(sizeof(uberblock_t), KM_SLEEP);
-	bzero(ubbuf, sizeof(uberblock_t));
-	ubbuf->ub_mmp.mmp_magic = MMP_MAGIC;
-	ubbuf->ub_mmp.mmp_open_id = rvd->vdev_spa->spa_mmp.mmp_open_id;
-	ubbuf->ub_mmp.mmp_op = MO_IMPORT_ATTEMPT;
-	ubbuf->ub_magic = UBERBLOCK_MAGIC;
+	if (!ubbuf)
+		return;
+	mmp_ubbuf_setup(rvd, ubbuf);
 
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
 	zio = zio_root(spa, NULL, NULL, flags);
