@@ -1750,28 +1750,26 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 		mmp_result = 0;
 		if (0)
 			mmp_result = vdev_mmpblock_check_and_set(leaf_vdev_array->leaf[vdev_index], mmp_block_index_in_vdev);
-		if (1) {
-			zio = zio_root(spa, NULL, &mmp_from_disk, flags);
-			vdev_mmpblock_foreign_id_check(zio, leaf_vdev_array->leaf[vdev_index], flags,
-						       mmp_block_index_in_vdev);
-			(void) zio_wait(zio);
-			if (mmp_from_disk.mmp_open_id != spa->spa_mmp.mmp_open_id) {
-				vdev_mmp_foreign_id_warning(
-					(long long unsigned int) spa->spa_mmp.mmp_open_id,
-					(long long unsigned int) mmp_from_disk.mmp_magic,
-					(long long unsigned int) mmp_from_disk.mmp_open_id,
-					(long long unsigned int) mmp_from_disk.mmp_seq,
-					mmp_from_disk.mmp_op,
-					mmp_from_disk.mmp_nodename);
-				rc = SET_ERROR(EBUSY); /* XXX choose a good error */
-				goto release_config_lock;
-			}
-	
-			zio = zio_root(spa, NULL, NULL, flags);
-			vdev_mmpblock_overwrite_single(zio, leaf_vdev_array->leaf[vdev_index],
-						       flags, ubbuf, mmp_block_index_in_vdev);
-			(void) zio_wait(zio);
+		zio = zio_root(spa, NULL, &mmp_from_disk, flags);
+		vdev_mmpblock_foreign_id_check(zio, leaf_vdev_array->leaf[vdev_index], flags,
+					       mmp_block_index_in_vdev);
+		(void) zio_wait(zio);
+		if (mmp_from_disk.mmp_open_id != spa->spa_mmp.mmp_open_id) {
+			vdev_mmp_foreign_id_warning(
+				(long long unsigned int) spa->spa_mmp.mmp_open_id,
+				(long long unsigned int) mmp_from_disk.mmp_magic,
+				(long long unsigned int) mmp_from_disk.mmp_open_id,
+				(long long unsigned int) mmp_from_disk.mmp_seq,
+				mmp_from_disk.mmp_op,
+				mmp_from_disk.mmp_nodename);
+			rc = SET_ERROR(EBUSY); /* XXX choose a good error */
+			goto release_config_lock;
 		}
+
+		zio = zio_root(spa, NULL, NULL, flags);
+		vdev_mmpblock_overwrite_single(zio, leaf_vdev_array->leaf[vdev_index],
+					       flags, ubbuf, mmp_block_index_in_vdev);
+		(void) zio_wait(zio);
 
 		if (mmp_result<0) {
 			/* read or write failed */
