@@ -1400,6 +1400,36 @@ vdev_mmpblock_foreign_id_impl(zio_t *zio, vdev_t *vd, int flags)
 	}
 }
 
+static void
+vdev_mmp_foreign_id_warning(
+	long long unsigned int local_mmp_open_id,
+	long long unsigned int mmp_magic,
+	long long unsigned int mmp_open_id,
+	long long unsigned int mmp_seq,
+	int mmp_op,
+	char *mmp_nodename)
+{
+	char msg[512];
+	snprintf(msg, sizeof(msg),
+		"Foreign ID found in MMP block:\n"
+		"me: open_id=%llu\n"
+		"foreign: magic=%llx\n"
+		"open_id=%lld\n"
+		"seq=%lld\n"
+		"op=%d\n"
+		"nodename=%s\n",
+		(long long unsigned int) local_mmp_open_id,
+		(long long unsigned int) mmp_magic,
+		(long long unsigned int) mmp_open_id,
+		(long long unsigned int) mmp_seq,
+		mmp_op,
+		mmp_nodename);
+	dprintf(msg);
+#ifdef _KERNEL
+	printk(msg);
+#endif
+}
+
 int
 vdev_mmpblock_foreign_id(vdev_t *rvd)
 {
@@ -1408,7 +1438,6 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	mmp_phys_t mmp_from_disk = spa->spa_mmp;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
 	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
-	char msg[512];
 
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
 	zio = zio_root(spa, NULL, &mmp_from_disk, flags);
@@ -1418,23 +1447,13 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	spa_config_exit(spa, SCL_ALL, FTAG);
 
 	if (mmp_from_disk.mmp_open_id != spa->spa_mmp.mmp_open_id) {
-		snprintf(msg, sizeof(msg),
-			"Foreign ID found in MMP block:\n"
-			"me: open_id=%llu\n"
-			"foreign: magic=%llx\n"
-			"open_id=%lld\n"
-			"seq=%lld\n"
-			"op=%d\n"
-			"nodename=%s\n", (long long unsigned int) spa->spa_mmp.mmp_open_id,
+		vdev_mmp_foreign_id_warning(
+			(long long unsigned int) spa->spa_mmp.mmp_open_id,
 			(long long unsigned int) mmp_from_disk.mmp_magic,
 			(long long unsigned int) mmp_from_disk.mmp_open_id,
 			(long long unsigned int) mmp_from_disk.mmp_seq,
 			mmp_from_disk.mmp_op,
 			mmp_from_disk.mmp_nodename);
-		dprintf(msg);
-#ifdef _KERNEL
-		printk(msg);
-#endif
 		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 	}
 
@@ -1681,7 +1700,6 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 	int rc;
 	int i;
 	zio_t *zio;
-	char msg[256];
 
 	/* allocate space for array of pointers to vdevs */
 	leaf_vdev_array = kmem_alloc(leaf_array_size, KM_SLEEP);
@@ -1738,33 +1756,21 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 						       mmp_block_index_in_vdev);
 			(void) zio_wait(zio);
 			if (mmp_from_disk.mmp_open_id != spa->spa_mmp.mmp_open_id) {
-				snprintf(msg, sizeof(msg),
-					"Foreign ID found in MMP block:\n"
-					"me: open_id=%llu\n"
-					"foreign: magic=%llx\n"
-					"mmp block=%d\n"
-					"open_id=%lld\n"
-					"seq=%lld\n"
-					"op=%d\n"
-					"nodename=%s\n", (long long unsigned int) spa->spa_mmp.mmp_open_id,
+				vdev_mmp_foreign_id_warning(
+					(long long unsigned int) spa->spa_mmp.mmp_open_id,
 					(long long unsigned int) mmp_from_disk.mmp_magic,
-					mmp_block_index_in_vdev,
 					(long long unsigned int) mmp_from_disk.mmp_open_id,
 					(long long unsigned int) mmp_from_disk.mmp_seq,
 					mmp_from_disk.mmp_op,
 					mmp_from_disk.mmp_nodename);
-				dprintf(msg);
-		#ifdef _KERNEL
-				printk(msg);
-		#endif
 				rc = SET_ERROR(EBUSY); /* XXX choose a good error */
 				goto release_config_lock;
-
+			}
+	
 			zio = zio_root(spa, NULL, NULL, flags);
 			vdev_mmpblock_overwrite_single(zio, leaf_vdev_array->leaf[vdev_index],
 						       flags, ubbuf, mmp_block_index_in_vdev);
 			(void) zio_wait(zio);
-			}
 		}
 
 		if (mmp_result<0) {
