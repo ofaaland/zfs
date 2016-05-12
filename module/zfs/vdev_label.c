@@ -1460,67 +1460,6 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	return 0;
 }
 
-static int
-vdev_mmpblock_check_and_set(vdev_t *vd, int mmp_block_index_in_vdev)
-{
-	int rc;
-	/*
-	 * rio,rbuf for read
-	 * wio,wbuf for write
-	 */
-	uberblock_t *rbuf;
-	zio_t *rio;
-	uberblock_t *wbuf;
-	zio_t *wio;
-	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL | ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
-	spa_t *spa = vd->vdev_spa;
-	mmp_phys_t mmp_from_disk = spa->spa_mmp;
-	int label = mmp_block_index_in_vdev / MMP_BLOCKS_PER_LABEL;
-	int mmp_block_index = mmp_block_index_in_vdev % MMP_BLOCKS_PER_LABEL;
-
-	ASSERT(vd);
-	ASSERT(vd->vdev_ops);
-	ASSERT(mmp_block_index_in_vdev < VDEV_LABELS*MMP_BLOCKS_PER_LABEL);
-	ASSERT(vd->vdev_ops->vdev_op_leaf);
-
-	/*
-	 * If only a small fraction of the leaf vdevs are not readable, 
-	 * then checking and setting the MMP blocks on the rest will
-	 * achieve our goal.  If a large fraction are not readable,
-	 * the pool will not be imported.  No need to make this an error here.
-	 */
-	if (!vdev_readable(vd)) {
-		return 0;
-		}
-
-	rbuf = zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd));
-	rio = zio_root(spa, NULL, &mmp_from_disk, flags);
-
-/*
-	vdev_label_read(rio, vd, label, rbuf,
-	    VDEV_UBERBLOCK_OFFSET(vd, VDEV_FIRST_MMP_BLOCK(vd) + mmp_block_index),
-	    VDEV_UBERBLOCK_SIZE(vd),
-	    vdev_mmpblock_load_done, rio, flags | ZIO_FLAG_DONT_PROPAGATE);
-*/
-	(void) zio_wait(rio);
-	zio_buf_free(rbuf, VDEV_UBERBLOCK_SIZE(vd));
-
-	wbuf = zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd));
-	bzero(wbuf, VDEV_UBERBLOCK_SIZE(vd));
-	wbuf->ub_mmp = spa->spa_mmp;
-	wio = zio_root(spa, NULL, &mmp_from_disk, flags);
-
-	/* write would go here */
-
-	(void) zio_wait(wio);
-	zio_buf_free(rbuf, VDEV_UBERBLOCK_SIZE(vd));
-
-	/* just to quiet warning about unused function/variable */
-	rc = label*mmp_block_index*0;
-
-	return rc;
-}
-
 static void
 vdev_mmpblock_overwrite_single(zio_t *zio, vdev_t *vd, int flags,
 			uberblock_t *ubbuf, int mmp_block)
@@ -1748,8 +1687,7 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 		vdev_index = mmp_block_index / (VDEV_LABELS * MMP_BLOCKS_PER_LABEL);
 		mmp_block_index_in_vdev = mmp_block_index % (VDEV_LABELS * MMP_BLOCKS_PER_LABEL);
 		mmp_result = 0;
-		if (0)
-			mmp_result = vdev_mmpblock_check_and_set(leaf_vdev_array->leaf[vdev_index], mmp_block_index_in_vdev);
+
 		zio = zio_root(spa, NULL, &mmp_from_disk, flags);
 		vdev_mmpblock_foreign_id_check(zio, leaf_vdev_array->leaf[vdev_index], flags,
 					       mmp_block_index_in_vdev);
