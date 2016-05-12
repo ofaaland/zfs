@@ -1635,7 +1635,6 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 	int vdev_index;
 	int mmp_block_index_in_vdev;
 	int mmp_block_index;
-	int mmp_result;
 	int rc;
 	int i;
 	zio_t *zio;
@@ -1686,7 +1685,6 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 		mmp_block_index = permutation[i];
 		vdev_index = mmp_block_index / (VDEV_LABELS * MMP_BLOCKS_PER_LABEL);
 		mmp_block_index_in_vdev = mmp_block_index % (VDEV_LABELS * MMP_BLOCKS_PER_LABEL);
-		mmp_result = 0;
 
 		zio = zio_root(spa, NULL, &mmp_from_disk, flags);
 		vdev_mmpblock_foreign_id_check(zio, leaf_vdev_array->leaf[vdev_index], flags,
@@ -1708,16 +1706,6 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 		vdev_mmpblock_overwrite_single(zio, leaf_vdev_array->leaf[vdev_index],
 					       flags, ubbuf, mmp_block_index_in_vdev);
 		(void) zio_wait(zio);
-
-		if (mmp_result<0) {
-			/* read or write failed */
-			rc = SET_ERROR(EIO);
-			goto release_config_lock;
-		} else if (mmp_result>0) {
-			/* found foreign ID */
-			rc = SET_ERROR(EBUSY);
-			goto release_config_lock;
-		}
 	}
 
 	/* Found no foreign ID, all MMP blocks have our ID now */
