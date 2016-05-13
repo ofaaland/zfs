@@ -114,7 +114,10 @@
  * The namespace is manipulated using the following functions, all of which
  * require the spa_namespace_lock to be held.
  *
- *	spa_lookup()		Lookup a spa_t by name.
+ *	spa_lookup()		Lookup a spa_t by name, excluding those with
+ *				spa_load_state == SPA_LOAD_IMPORT.
+ *
+ *	spa_lookup_any()	Lookup a spa_t by name.
  *
  *	spa_add()		Create a new spa_t in the namespace.
  *
@@ -485,10 +488,29 @@ spa_config_held(spa_t *spa, int locks, krw_t rw)
 
 /*
  * Lookup the named spa_t in the AVL tree.  The spa_namespace_lock must be held.
- * Returns NULL if no matching spa_t is found.
+ * Returns NULL if no matching spa_t with
+ *    spa_state != POOL_STATE_(IMPORT,TRYIMPORT,OPEN) is found.
  */
 spa_t *
 spa_lookup(const char *name)
+{
+	spa_t *spa;
+
+	spa = spa_lookup_any(name);
+	if (spa && (spa->spa_load_state != SPA_LOAD_IMPORT &&
+		    spa->spa_load_state != SPA_LOAD_TRYIMPORT &&
+		    spa->spa_load_state != SPA_LOAD_OPEN))
+		return spa;
+	else
+		return NULL;
+}
+
+/*
+ * Lookup the named spa_t in the AVL tree.  The spa_namespace_lock must be held.
+ * Returns NULL if no matching spa_t is found.
+ */
+spa_t *
+spa_lookup_any(const char *name)
 {
 	static spa_t search;	/* spa_t is large; don't allocate on stack */
 	spa_t *spa;
@@ -536,7 +558,7 @@ spa_deadman(void *arg)
 /*
  * Create an uninitialized spa_t with the given name.  Requires
  * spa_namespace_lock.  The caller must ensure that the spa_t doesn't already
- * exist by calling spa_lookup() first.
+ * exist by calling spa_lookup_any() first.
  */
 spa_t *
 spa_add(const char *name, nvlist_t *config, const char *altroot)

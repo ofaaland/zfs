@@ -3414,7 +3414,7 @@ spa_get_stats(const char *name, nvlist_t **config,
 	if (altroot) {
 		if (spa == NULL) {
 			mutex_enter(&spa_namespace_lock);
-			spa = spa_lookup(name);
+			spa = spa_lookup_any(name);
 			if (spa)
 				spa_altroot(spa, altroot, buflen);
 			else
@@ -3637,7 +3637,7 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	 * If this pool already exists, return failure.
 	 */
 	mutex_enter(&spa_namespace_lock);
-	if (spa_lookup(poolname) != NULL) {
+	if (spa_lookup_any(poolname) != NULL) {
 		mutex_exit(&spa_namespace_lock);
 		return (SET_ERROR(EEXIST));
 	}
@@ -4096,7 +4096,7 @@ spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 	 * If a pool with this name exists, return failure.
 	 */
 	mutex_enter(&spa_namespace_lock);
-	if (spa_lookup(pool) != NULL) {
+	if (spa_lookup_any(pool) != NULL) {
 		mutex_exit(&spa_namespace_lock);
 		return (SET_ERROR(EEXIST));
 	}
@@ -5094,7 +5094,7 @@ spa_vdev_split_mirror(spa_t *spa, char *newname, nvlist_t *config,
 		return (spa_vdev_exit(spa, NULL, txg, error));
 
 	/* check new spa name before going any further */
-	if (spa_lookup(newname) != NULL)
+	if (spa_lookup_any(newname) != NULL)
 		return (spa_vdev_exit(spa, NULL, txg, EEXIST));
 
 	/*
