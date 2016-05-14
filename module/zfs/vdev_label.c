@@ -1729,9 +1729,39 @@ release_config_lock:
 	return (rc);
 }
 
+/*
+ * Watch MMP blocks on disk for change to detect that the pool is actively
+ * imported by another node.
+ *
+ * In not to interfere with other operations that depend on namespace changes,
+ * such as a concurrent zpool create, drop any locks before waiting, then take
+ * them again after waiting.  This is safe as long as:
+ * 1) The spa's refcount has been incremented so it cannot be removed.
+ * 2) Concurrent changes to this same pool are prevented.  This is done by
+ * preventing spa_lookup() from returning pools with
+ * spa_load_state==SPA_LOAD_IMPORT
+ */
 int
 vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 {
+	int mmp_wait_secs = 10;
+
+	ASSERT(top_level_vdev);
+	ASSERT(top_level_vdev->vdev_spa);
+	ASSERT( top_level_vdev->vdev_spa->spa_load_state == SPA_LOAD_OPEN ||
+		top_level_vdev->vdev_spa->spa_load_state == SPA_LOAD_IMPORT ||
+		top_level_vdev->vdev_spa->spa_load_state == SPA_LOAD_TRYIMPORT
+		);
+
+	mutex_exit(&spa_namespace_lock);
+
+	/*
+	 * Read/check/wait loop here.
+	 */
+	delay(HZ*mmp_wait_secs);
+
+	mutex_enter(&spa_namespace_lock);
+
 	return 0;
 }
 
