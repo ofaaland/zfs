@@ -1351,8 +1351,6 @@ vdev_mmpblock_load_done(zio_t *zio)
 			*report_to_caller=*ub_mmp;
 		mutex_exit(&rio->io_lock);
 	}
-
-	zio_buf_free(zio->io_data, zio->io_size);
 }
 
 static void
@@ -1388,13 +1386,13 @@ vdev_mmpblock_foreign_id_impl(zio_t *zio, vdev_t *vd, int flags)
 
 	if (vd->vdev_ops->vdev_op_leaf && vdev_readable(vd)) {
 		if (!vd->vdev_mmp)
-			vd->vdev_mmp = kmem_alloc(VDEV_LABELS*MMP_BLOCKS_PER_LABEL*
-						  sizeof(uberblock_t), KM_SLEEP);
+			vd->vdev_mmp = zio_buf_alloc(VDEV_LABELS*MMP_BLOCKS_PER_LABEL*
+						     VDEV_UBERBLOCK_SIZE(vd));
 
 		for (l = 0; l < VDEV_LABELS; l++) {
 			for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
 				vdev_label_read(zio, vd, l,
-				    zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd)),
+				    &vd->vdev_mmp[l*VDEV_LABELS+n],
 				    VDEV_UBERBLOCK_OFFSET(vd,
 				    VDEV_FIRST_MMP_BLOCK(vd) + n),
 				    VDEV_UBERBLOCK_SIZE(vd),

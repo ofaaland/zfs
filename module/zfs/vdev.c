@@ -659,8 +659,8 @@ vdev_free(vdev_t *vd)
 		spa_l2cache_remove(vd);
 
 	if (vd->vdev_mmp)
-		kmem_free(vd->vdev_mmp, VDEV_LABELS*MMP_BLOCKS_PER_LABEL*
-			  sizeof(uberblock_t));
+		zio_buf_free(vd->vdev_mmp, VDEV_LABELS*MMP_BLOCKS_PER_LABEL*
+			     VDEV_UBERBLOCK_SIZE(vd));
 
 	txg_list_destroy(&vd->vdev_ms_list);
 	txg_list_destroy(&vd->vdev_dtl_list);
