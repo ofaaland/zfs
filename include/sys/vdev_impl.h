@@ -215,6 +215,7 @@ struct vdev {
 	spa_aux_vdev_t	*vdev_aux;	/* for l2cache and spares vdevs	*/
 	zio_t		*vdev_probe_zio; /* root of current probe	*/
 	vdev_aux_t	vdev_label_aux;	/* on-disk aux state		*/
+	uberblock_t	*vdev_mmp;	/* mmp blocks used during import */
 
 	/*
 	 * For DTrace to work in userland (libzpool) context, these fields must

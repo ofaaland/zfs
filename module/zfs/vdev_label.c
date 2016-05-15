@@ -1387,6 +1387,10 @@ vdev_mmpblock_foreign_id_impl(zio_t *zio, vdev_t *vd, int flags)
 		vdev_mmpblock_foreign_id_impl(zio, vd->vdev_child[c], flags);
 
 	if (vd->vdev_ops->vdev_op_leaf && vdev_readable(vd)) {
+		if (!vd->vdev_mmp)
+			vd->vdev_mmp = kmem_alloc(VDEV_LABELS*MMP_BLOCKS_PER_LABEL*
+						  sizeof(uberblock_t), KM_SLEEP);
+
 		for (l = 0; l < VDEV_LABELS; l++) {
 			for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
 				vdev_label_read(zio, vd, l,
