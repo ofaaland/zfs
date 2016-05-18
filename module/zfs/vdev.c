@@ -313,6 +313,7 @@ vdev_alloc_common(spa_t *spa, uint_t id, uint64_t guid, vdev_ops_t *ops)
 {
 	vdev_t *vd;
 	int t;
+	int i;
 
 	vd = kmem_zalloc(sizeof (vdev_t), KM_SLEEP);
 
@@ -345,8 +346,8 @@ vdev_alloc_common(spa_t *spa, uint_t id, uint64_t guid, vdev_ops_t *ops)
 	vd->vdev_ops = ops;
 	vd->vdev_state = VDEV_STATE_CLOSED;
 	vd->vdev_ishole = (ops == &vdev_hole_ops);
-	vd->vdev_mmp[0] = NULL;
-	vd->vdev_mmp[1] = NULL;
+	for (i=0; i<VDEV_MMP_ARRAYS; i++)
+		vd->vdev_mmp[i] = NULL;
 
 	list_link_init(&vd->vdev_config_dirty_node);
 	list_link_init(&vd->vdev_state_dirty_node);
@@ -381,6 +382,7 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	char *type;
 	uint64_t guid = 0, islog, nparity;
 	vdev_t *vd;
+	int i;
 
 	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL);
 
@@ -587,6 +589,16 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	}
 
 	/*
+	 * If we're a leaf vdev, allocate memory for MMP blocks.
+	 * XXX should we skip this for some alloctypes?
+	 */
+	if (vd->vdev_ops->vdev_op_leaf) {
+		for (i=0; i<VDEV_MMP_ARRAYS; i++)
+			vd->vdev_mmp[i] = zio_buf_alloc(VDEV_LABELS*
+				MMP_BLOCKS_PER_LABEL*VDEV_UBERBLOCK_SIZE(vd));
+	}
+
+	/*
 	 * Add ourselves to the parent's list of children.
 	 */
 	vdev_add_child(parent, vd);
@@ -599,7 +611,7 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 void
 vdev_free(vdev_t *vd)
 {
-	int c, t;
+	int c, t, i;
 	spa_t *spa = vd->vdev_spa;
 
 	/*
@@ -659,9 +671,11 @@ vdev_free(vdev_t *vd)
 	if (vd->vdev_isl2cache)
 		spa_l2cache_remove(vd);
 
-	if (vd->vdev_mmp)
-		zio_buf_free(vd->vdev_mmp, VDEV_LABELS*MMP_BLOCKS_PER_LABEL*
-			     VDEV_UBERBLOCK_SIZE(vd));
+	for (i=0; i<VDEV_MMP_ARRAYS; i++)
+		if (vd->vdev_mmp[i])
+			zio_buf_free(vd->vdev_mmp[i],
+				VDEV_LABELS*MMP_BLOCKS_PER_LABEL*
+				VDEV_UBERBLOCK_SIZE(vd));
 
 	txg_list_destroy(&vd->vdev_ms_list);
 	txg_list_destroy(&vd->vdev_dtl_list);

@@ -123,6 +123,8 @@ struct vdev_queue {
 	uint64_t	vq_lastoffset;
 };
 
+#define VDEV_MMP_ARRAYS 2
+
 /*
  * Virtual device descriptor
  */
@@ -228,7 +230,7 @@ struct vdev {
 	 * to any txg sync, MMP blocks are re-read into vdev_mmp[1] and tested
 	 * to ensure they were not changed by another node.
 	 */
-	uberblock_t	*vdev_mmp[2];
+	uberblock_t	*vdev_mmp[VDEV_MMP_ARRAYS];
 
 	/*
 	 * For DTrace to work in userland (libzpool) context, these fields must

@@ -1429,9 +1429,10 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 	if (!vd->vdev_ops->vdev_op_leaf || !vdev_readable(vd))
 		return;
 
-	if (!vd->vdev_mmp[pass])
-		vd->vdev_mmp[pass] = zio_buf_alloc(VDEV_LABELS*
-				MMP_BLOCKS_PER_LABEL*VDEV_UBERBLOCK_SIZE(vd));
+	/*
+	 * This assert applies only to leaf vdevs.
+	 */
+	ASSERT(vd->vdev_mmp[pass]);
 
 	/*
 	 * XXX Could make one vdev_label_read() call per label since the MMP
