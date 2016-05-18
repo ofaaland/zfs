@@ -1306,7 +1306,6 @@ retry:
 }
 
 static void
-
 mmp_ubbuf_setup(vdev_t *rvd, uberblock_t *ubbuf)
 {
 	ASSERT(ubbuf);
@@ -1318,6 +1317,141 @@ mmp_ubbuf_setup(vdev_t *rvd, uberblock_t *ubbuf)
 	ubbuf->ub_mmp.mmp_open_id = rvd->vdev_spa->spa_mmp.mmp_open_id;
 	ubbuf->ub_mmp.mmp_op = MO_IMPORT_ATTEMPT;
 	ubbuf->ub_magic = UBERBLOCK_MAGIC;
+}
+
+/*
+ * Test whether a given in-memory mmp block is not clean, meaning it is a valid
+ * MMP block but has an mmp_open_id != MMP_ID_CLEAN.
+ *  0  = clean
+ *  <0 = dirty
+ */
+static int
+vdev_is_mmpblock_dirty(uberblock_t *ub)
+{
+	if (ub->ub_mmp.mmp_magic != MMP_MAGIC)
+		return 0;
+
+	if (ub->ub_mmp.mmp_open_id == MMP_CLEAN_ID)
+		return 0;
+
+	return (-1);
+}
+
+/*
+ * Given a top level vdev, walk the tree until the leaf vdevs are found.  For
+ * each leaf, check the MMP blocks in vd->vdev_mmp[0].  If a foreign ID is found,
+ * return a pointer to the block; if all are clean, return NULL.
+ */
+
+static uberblock_t *
+vdev_mmpblocks_are_dirty(vdev_t *vd, int pass)
+{
+	int c, l, n;
+	void *ub;
+
+	ASSERT(pass==0 || pass==1);
+	ASSERT(vd);
+
+	for (c = 0; c < vd->vdev_children; c++)
+		if ((ub=vdev_mmpblocks_are_dirty(vd->vdev_child[c], pass)) != NULL)
+			return (ub);
+
+	if (!vd->vdev_ops->vdev_op_leaf)
+		return NULL;
+
+	if (!vd->vdev_mmp[pass])
+		return NULL;
+
+	for (l = 0; l < VDEV_LABELS; l++) {
+		for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
+			ub = vd->vdev_mmp[pass] + (l*VDEV_LABELS+n)*
+			     VDEV_UBERBLOCK_SIZE(vd);
+
+			if (vdev_is_mmpblock_dirty(ub))
+				return ((uberblock_t *) ub);
+		}
+	}
+
+	return NULL;
+}
+
+/*
+ * Given a top level vdev, walk the tree until the leaf vdevs are found.  For
+ * each leaf, check whether the MMP blocks in vd->vdev_mmp[0] are different
+ * than those in vd->vdev_mmp[1].  Return NULL if there is no difference.
+ * Return a pointer to the vdev if there is a difference.
+ */
+
+static vdev_t *
+vdev_mmpblocks_changed(vdev_t *vd)
+{
+	int c;
+	int size = VDEV_LABELS*MMP_BLOCKS_PER_LABEL*VDEV_UBERBLOCK_SIZE(vd);
+
+	ASSERT(vd);
+
+	for (c = 0; c < vd->vdev_children; c++)
+		vdev_mmpblocks_changed(vd->vdev_child[c]);
+
+	if (!vd->vdev_ops->vdev_op_leaf)
+		return NULL;
+
+	if (!vd->vdev_mmp[0] || !vd->vdev_mmp[1])
+		return NULL;
+
+	if (memcmp(vd->vdev_mmp[0], vd->vdev_mmp[1], size) != 0)
+		return (vd);
+
+	return (NULL);
+}
+
+/*
+ * Given a top level vdev, walk the tree until the leaf vdevs are found.  For
+ * each leaf, read its MMP blocks from disk and record them in an array at
+ * vd->vdev_mmp[pass].  See struct vdev for usage of vdev_mmp[pass].
+ */
+
+static void
+vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
+{
+	int c, l, n;
+	void *ub;
+
+	ASSERT(pass==0 || pass==1);
+	ASSERT(zio);
+	ASSERT(vd);
+
+	for (c = 0; c < vd->vdev_children; c++)
+		vdev_read_all_mmpblocks(zio, vd->vdev_child[c], io_flags, pass);
+
+	if (!vd->vdev_ops->vdev_op_leaf || !vdev_readable(vd))
+		return;
+
+	if (!vd->vdev_mmp[pass])
+		vd->vdev_mmp[pass] = zio_buf_alloc(VDEV_LABELS*
+				MMP_BLOCKS_PER_LABEL*VDEV_UBERBLOCK_SIZE(vd));
+
+	/*
+	 * XXX Could make one vdev_label_read() call per label since the MMP
+	 * blocks are contiguous.  However, we plan, later, to capture the
+	 * checksum per block, to detect change, which may most easily be
+	 * available through the zio.  So leave it structured with two loops
+	 * like this.  The contiguous reads should be coalesced before they are
+	 * issued to the physical device, anyway.
+	 */
+	for (l = 0; l < VDEV_LABELS; l++) {
+		for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
+			ub = vd->vdev_mmp[pass] + (l*VDEV_LABELS+n)*
+			     VDEV_UBERBLOCK_SIZE(vd);
+
+			vdev_label_read(zio, vd, l,
+			    (uberblock_t *) ub,
+			    VDEV_UBERBLOCK_OFFSET(vd,
+			    VDEV_FIRST_MMP_BLOCK(vd) + n),
+			    VDEV_UBERBLOCK_SIZE(vd),
+			    NULL, zio, io_flags);
+		}
+	}
 }
 
 static void
@@ -1377,32 +1511,6 @@ vdev_mmpblock_foreign_id_check(zio_t *zio, vdev_t *vd, int flags, int mmp_block)
 }
 
 static void
-vdev_mmpblock_foreign_id_impl(zio_t *zio, vdev_t *vd, int flags)
-{
-	int c, l, n;
-
-	for (c = 0; c < vd->vdev_children; c++)
-		vdev_mmpblock_foreign_id_impl(zio, vd->vdev_child[c], flags);
-
-	if (vd->vdev_ops->vdev_op_leaf && vdev_readable(vd)) {
-		if (!vd->vdev_mmp)
-			vd->vdev_mmp = zio_buf_alloc(VDEV_LABELS*MMP_BLOCKS_PER_LABEL*
-						     VDEV_UBERBLOCK_SIZE(vd));
-
-		for (l = 0; l < VDEV_LABELS; l++) {
-			for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
-				vdev_label_read(zio, vd, l,
-				    &vd->vdev_mmp[l*VDEV_LABELS+n],
-				    VDEV_UBERBLOCK_OFFSET(vd,
-				    VDEV_FIRST_MMP_BLOCK(vd) + n),
-				    VDEV_UBERBLOCK_SIZE(vd),
-				    vdev_mmpblock_load_done, zio, flags);
-			}
-		}
-	}
-}
-
-static void
 vdev_mmp_foreign_id_warning(
 	long long unsigned int local_mmp_open_id,
 	long long unsigned int mmp_magic,
@@ -1437,27 +1545,37 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 {
 	zio_t *zio;
 	spa_t *spa = rvd->vdev_spa;
-	mmp_phys_t mmp_from_disk = spa->spa_mmp;
+	uberblock_t *ub;
+	vdev_t *vd;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
 	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
 
+	zio = zio_root(spa, NULL, NULL, flags);
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-	zio = zio_root(spa, NULL, &mmp_from_disk, flags);
-	vdev_mmpblock_foreign_id_impl(zio, rvd, flags);
+	vdev_read_all_mmpblocks(zio, rvd, flags, 0);
 	(void) zio_wait(zio);
-
 	spa_config_exit(spa, SCL_ALL, FTAG);
 
-	if (mmp_from_disk.mmp_open_id != spa->spa_mmp.mmp_open_id) {
+	if ((ub=vdev_mmpblocks_are_dirty(rvd, 0)) != NULL) {
 		vdev_mmp_foreign_id_warning(
 			(long long unsigned int) spa->spa_mmp.mmp_open_id,
-			(long long unsigned int) mmp_from_disk.mmp_magic,
-			(long long unsigned int) mmp_from_disk.mmp_open_id,
-			(long long unsigned int) mmp_from_disk.mmp_seq,
-			mmp_from_disk.mmp_op,
-			mmp_from_disk.mmp_nodename);
+			(long long unsigned int) ub->ub_mmp.mmp_magic,
+			(long long unsigned int) ub->ub_mmp.mmp_open_id,
+			(long long unsigned int) ub->ub_mmp.mmp_seq,
+			ub->ub_mmp.mmp_op,
+			ub->ub_mmp.mmp_nodename);
 		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 	}
+
+	/* XXX to be moved to its own function */
+	zio = zio_root(spa, NULL, NULL, flags);
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+	vdev_read_all_mmpblocks(zio, rvd, flags, 1);
+	(void) zio_wait(zio);
+	spa_config_exit(spa, SCL_ALL, FTAG);
+
+	if ((vd=vdev_mmpblocks_changed(rvd)))
+		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 
 	return 0;
 }

@@ -215,7 +215,20 @@ struct vdev {
 	spa_aux_vdev_t	*vdev_aux;	/* for l2cache and spares vdevs	*/
 	zio_t		*vdev_probe_zio; /* root of current probe	*/
 	vdev_aux_t	vdev_label_aux;	/* on-disk aux state		*/
-	uberblock_t	*vdev_mmp;	/* mmp blocks used during import */
+
+	/*
+	 * Arrays of MMP blocks used during import.  They support two use
+	 * cases:
+	 * 1) During import, vdev_mmp[0] points to MMP blocks read at the
+	 * beginning of the import process.  After a delay, the MMP blocks are
+	 * re-read into vdev_mmp[1] and compared with vdev_mmp[0] to detect
+	 * change.
+	 * 2) While a pool is open, vdev_mmp[0] points to blocks recording the
+	 * data written out by the txg_sync thread or by the mmp thread.  Prior
+	 * to any txg sync, MMP blocks are re-read into vdev_mmp[1] and tested
+	 * to ensure they were not changed by another node.
+	 */
+	uberblock_t	*vdev_mmp[2];
 
 	/*
 	 * For DTrace to work in userland (libzpool) context, these fields must
