@@ -1457,62 +1457,6 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 }
 
 static void
-vdev_mmpblock_load_done(zio_t *zio)
-{
-	vdev_t *vd = zio->io_vd;
-	/* data from disk */
-	uberblock_t *ub = zio->io_data;
-	mmp_phys_t *ub_mmp = &ub->ub_mmp;
-
-	/* data in spa */
-	spa_t *spa = zio->io_spa;
-	mmp_phys_t *spa_mmp = &spa->spa_mmp;
-
-	/* used to report back to caller */
-	zio_t *rio = zio->io_private;
-	mmp_phys_t *report_to_caller = (mmp_phys_t *)rio->io_private;
-
-	ASSERT3U(zio->io_size, ==, VDEV_UBERBLOCK_SIZE(vd));
-
-	ASSERT3U(spa_mmp->mmp_magic, ==, MMP_MAGIC);
-
-	if (zio->io_error == 0 && uberblock_verify(ub) == 0) {
-		mutex_enter(&rio->io_lock);
-		/*
-		 * If we find a foreign mmp_open_id, copy the entire mmp block
-		 * into report_to_caller, so we can use the nodename etc. to
-		 * help the user identify the competing node(s).
-		 */
-		if (spa_mmp->mmp_open_id != ub_mmp->mmp_open_id)
-			*report_to_caller=*ub_mmp;
-		mutex_exit(&rio->io_lock);
-	}
-}
-
-static void
-vdev_mmpblock_foreign_id_check(zio_t *zio, vdev_t *vd, int flags, int mmp_block)
-{
-	int l = mmp_block / MMP_BLOCKS_PER_LABEL;
-	int n = mmp_block % MMP_BLOCKS_PER_LABEL;
-
-	ASSERT(vd);
-	ASSERT(l < VDEV_LABELS);
-	ASSERT(n < MMP_BLOCKS_PER_LABEL);
-
-	ASSERT ( !((vd->vdev_state <= VDEV_STATE_CANT_OPEN) ||
-	     (vd->vdev_children) ||
-	     (!vd->vdev_ops->vdev_op_leaf) ||
-	     (!vdev_readable(vd))));
-
-	vdev_label_read(zio, vd, l,
-	    zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd)),
-	    VDEV_UBERBLOCK_OFFSET(vd,
-	    VDEV_FIRST_MMP_BLOCK(vd) + n),
-	    VDEV_UBERBLOCK_SIZE(vd),
-	    vdev_mmpblock_load_done, zio, flags);
-}
-
-static void
 vdev_mmp_foreign_id_warning(
 	long long unsigned int local_mmp_open_id,
 	long long unsigned int mmp_magic,
