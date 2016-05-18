@@ -1385,13 +1385,15 @@ vdev_mmpblocks_are_dirty(vdev_t *vd, int pass)
 static vdev_t *
 vdev_mmpblocks_changed(vdev_t *vd)
 {
+	vdev_t *rc;
 	int c;
 	int size = VDEV_LABELS*MMP_BLOCKS_PER_LABEL*VDEV_UBERBLOCK_SIZE(vd);
 
 	ASSERT(vd);
 
 	for (c = 0; c < vd->vdev_children; c++)
-		vdev_mmpblocks_changed(vd->vdev_child[c]);
+		if ((rc=vdev_mmpblocks_changed(vd->vdev_child[c])) != NULL)
+			return (rc);
 
 	if (!vd->vdev_ops->vdev_op_leaf)
 		return (NULL);
