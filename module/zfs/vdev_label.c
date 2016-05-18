@@ -1357,10 +1357,10 @@ vdev_mmpblocks_are_dirty(vdev_t *vd, int pass)
 			return (ub);
 
 	if (!vd->vdev_ops->vdev_op_leaf)
-		return NULL;
+		return (NULL);
 
 	if (!vd->vdev_mmp[pass])
-		return NULL;
+		return (NULL);
 
 	for (l = 0; l < VDEV_LABELS; l++) {
 		for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
@@ -1394,10 +1394,10 @@ vdev_mmpblocks_changed(vdev_t *vd)
 		vdev_mmpblocks_changed(vd->vdev_child[c]);
 
 	if (!vd->vdev_ops->vdev_op_leaf)
-		return NULL;
+		return (NULL);
 
 	if (!vd->vdev_mmp[0] || !vd->vdev_mmp[1])
-		return NULL;
+		return (NULL);
 
 	if (memcmp(vd->vdev_mmp[0], vd->vdev_mmp[1], size) != 0)
 		return (vd);
