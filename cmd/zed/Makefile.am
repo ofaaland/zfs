@@ -13,6 +13,8 @@ zed_SOURCES = \
 	zed.h \
 	zed_conf.c \
 	zed_conf.h \
+	zed_disk_event.c \
+	zed_disk_event.h \
 	zed_event.c \
 	zed_event.h \
 	zed_exec.c \
@@ -22,7 +24,11 @@ zed_SOURCES = \
 	zed_log.c \
 	zed_log.h \
 	zed_strings.c \
-	zed_strings.h
+	zed_strings.h \
+	agents/zfs_agents.h \
+	agents/zfs_diagnosis.c \
+	agents/zfs_mod.c \
+	agents/zfs_retire.c
 
 zed_LDADD = \
 	$(top_builddir)/lib/libavl/libavl.la \
