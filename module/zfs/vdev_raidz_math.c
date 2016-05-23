@@ -390,8 +390,6 @@ vdev_raidz_math_init(void)
 				continue;
 			}
 
-			kpreempt_disable();
-
 			run_count = 0;
 			t_start = gethrtime();
 
@@ -405,8 +403,6 @@ vdev_raidz_math_init(void)
 			speed /= (BENCH_D_COLS+bench_parity);
 			speed *= 1000000000ULL;
 			speed /= (gethrtime() - t_start);
-
-			kpreempt_enable();
 
 			raidz_math_kstats[impl].gen_kstat[fn].value.ui64 =
 				speed;
@@ -437,7 +433,6 @@ vdev_raidz_math_init(void)
 
 			run_count = 0;
 
-			kpreempt_disable();
 			t_start = gethrtime();
 
 			do {
@@ -449,8 +444,6 @@ vdev_raidz_math_init(void)
 			speed /= (BENCH_COLS);
 			speed *= 1000000000ULL;
 			speed /= (gethrtime() - t_start);
-
-			kpreempt_enable();
 
 			raidz_math_kstats[impl].rec_kstat[fn].value.ui64 =
 				speed;
@@ -477,8 +470,6 @@ vdev_raidz_math_init(void)
 			BENCH_D_COLS+bench_parity, bench_parity);
 		bench_rm->rm_ops = NULL; /* force original math */
 
-		kpreempt_disable();
-
 		run_count = 0;
 		t_start = gethrtime();
 
@@ -493,8 +484,6 @@ vdev_raidz_math_init(void)
 		speed *= 1000000000ULL;
 		speed /= (gethrtime() - t_start);
 
-		kpreempt_enable();
-
 		raidz_math_kstats[impl_num].gen_kstat[fn].value.ui64 = speed;
 		bench_print(BENCH_RES_FMT, raidz_gen_name[fn], "original",
 			speed/1000, speed%1000);
@@ -506,8 +495,6 @@ vdev_raidz_math_init(void)
 	bench_rm->rm_ops = NULL; /* force original math */
 
 	for (fn = 0; fn < RAIDZ_REC_NUM; fn++) {
-
-		kpreempt_disable();
 
 		run_count = 0;
 		t_start = gethrtime();
@@ -523,8 +510,6 @@ vdev_raidz_math_init(void)
 		speed /= (BENCH_COLS);
 		speed *= 1000000000ULL;
 		speed /= (gethrtime() - t_start);
-
-		kpreempt_enable();
 
 		raidz_math_kstats[impl_num].rec_kstat[fn].value.ui64 = speed;
 		bench_print(BENCH_RES_FMT, raidz_rec_name[fn], "original",
