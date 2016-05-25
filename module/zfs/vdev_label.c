@@ -1422,6 +1422,12 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 	int c, l, n;
 	void *ub;
 
+#ifdef _KERNEL
+	printk("vdev_read_all_mmpblocks() pass %d\n", pass);
+#else
+	printf("vdev_read_all_mmpblocks() pass %d\n", pass);
+#endif
+
 	ASSERT(zio);
 	ASSERT(vd);
 	ASSERT(pass>=0 && pass<VDEV_MMP_ARRAYS);
@@ -1460,44 +1466,14 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 	}
 }
 
-static void
-vdev_mmpblock_load_done(zio_t *zio)
-{
-	vdev_t *vd = zio->io_vd;
-	/* data from disk */
-	uberblock_t *ub = zio->io_data;
-	mmp_phys_t *ub_mmp = &ub->ub_mmp;
-
-	/* data in spa */
-	spa_t *spa = zio->io_spa;
-	mmp_phys_t *spa_mmp = &spa->spa_mmp;
-
-	/* used to report back to caller */
-	zio_t *rio = zio->io_private;
-	mmp_phys_t *report_to_caller = (mmp_phys_t *)rio->io_private;
-
-	ASSERT3U(zio->io_size, ==, VDEV_UBERBLOCK_SIZE(vd));
-
-	ASSERT3U(spa_mmp->mmp_magic, ==, MMP_MAGIC);
-
-	if (zio->io_error == 0 && uberblock_verify(ub) == 0) {
-		mutex_enter(&rio->io_lock);
-		/*
-		 * If we find a foreign mmp_open_id, copy the entire mmp block
-		 * into report_to_caller, so we can use the nodename etc. to
-		 * help the user identify the competing node(s).
-		 */
-		if (spa_mmp->mmp_open_id != ub_mmp->mmp_open_id)
-			*report_to_caller=*ub_mmp;
-		mutex_exit(&rio->io_lock);
-	}
-}
-
-static void
-vdev_mmpblock_foreign_id_check(zio_t *zio, vdev_t *vd, int flags, int mmp_block)
+static uberblock_t *
+vdev_mmpblock_foreign_id_check(vdev_t *vd, int flags, int mmp_block)
 {
 	int l = mmp_block / MMP_BLOCKS_PER_LABEL;
 	int n = mmp_block % MMP_BLOCKS_PER_LABEL;
+	zio_t *zio;
+	spa_t *spa;
+	int rc;
 
 	ASSERT(vd);
 	ASSERT(l < VDEV_LABELS);
@@ -1508,12 +1484,28 @@ vdev_mmpblock_foreign_id_check(zio_t *zio, vdev_t *vd, int flags, int mmp_block)
 	     (!vd->vdev_ops->vdev_op_leaf) ||
 	     (!vdev_readable(vd))));
 
+	spa = vd->vdev_spa;
+	zio = zio_root(spa, NULL, NULL, flags);
 	vdev_label_read(zio, vd, l,
-	    zio_buf_alloc(VDEV_UBERBLOCK_SIZE(vd)),
+	    vd->vdev_mmp[MMP_LATER_READ] +
+	    mmp_block*VDEV_UBERBLOCK_SIZE(vd),
 	    VDEV_UBERBLOCK_OFFSET(vd,
 	    VDEV_FIRST_MMP_BLOCK(vd) + n),
 	    VDEV_UBERBLOCK_SIZE(vd),
-	    vdev_mmpblock_load_done, zio, flags);
+	    NULL, NULL, flags);
+	rc = zio_wait(zio);
+
+	if (rc)
+		return NULL;
+
+	if (memcmp(
+	    vd->vdev_mmp[MMP_INIT_READ] + mmp_block*VDEV_UBERBLOCK_SIZE(vd), 
+	    vd->vdev_mmp[MMP_LATER_READ] + mmp_block*VDEV_UBERBLOCK_SIZE(vd), 
+	    VDEV_UBERBLOCK_SIZE(vd)) != 0)
+		return (vd->vdev_mmp[MMP_LATER_READ] +
+			mmp_block*VDEV_UBERBLOCK_SIZE(vd));
+
+	return NULL;
 }
 
 static void
@@ -1563,7 +1555,7 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 
 	zio = zio_root(spa, NULL, NULL, flags);
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-	vdev_read_all_mmpblocks(zio, rvd, flags, 0);
+	vdev_read_all_mmpblocks(zio, rvd, flags, MMP_INIT_READ);
 	(void) zio_wait(zio);
 	spa_config_exit(spa, SCL_ALL, FTAG);
 
@@ -1581,7 +1573,7 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	/* XXX to be moved to its own function */
 	zio = zio_root(spa, NULL, NULL, flags);
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-	vdev_read_all_mmpblocks(zio, rvd, flags, 1);
+	vdev_read_all_mmpblocks(zio, rvd, flags, MMP_LATER_READ);
 	(void) zio_wait(zio);
 	spa_config_exit(spa, SCL_ALL, FTAG);
 
@@ -1769,7 +1761,6 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 {
 	uberblock_t *ubbuf = NULL;
 	spa_t *spa = top_level_vdev->vdev_spa;
-	mmp_phys_t mmp_from_disk = spa->spa_mmp;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
 	            ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
 	uint64_t *permutation = NULL;
@@ -1782,6 +1773,7 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 	int mmp_block_index;
 	int rc;
 	int i;
+	uberblock_t *blk;
 	zio_t *zio;
 
 	ASSERT(top_level_vdev);
@@ -1833,18 +1825,15 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 		vdev_index = mmp_block_index / (VDEV_LABELS * MMP_BLOCKS_PER_LABEL);
 		mmp_block_index_in_vdev = mmp_block_index % (VDEV_LABELS * MMP_BLOCKS_PER_LABEL);
 
-		zio = zio_root(spa, NULL, &mmp_from_disk, flags);
-		vdev_mmpblock_foreign_id_check(zio, leaf_vdev_array->leaf[vdev_index], flags,
-					       mmp_block_index_in_vdev);
-		(void) zio_wait(zio);
-		if (mmp_from_disk.mmp_open_id != spa->spa_mmp.mmp_open_id) {
+		if ((blk = vdev_mmpblock_foreign_id_check(leaf_vdev_array->leaf[vdev_index], flags,
+					       mmp_block_index_in_vdev))) {
 			vdev_mmp_foreign_id_warning(
 				(long long unsigned int) spa->spa_mmp.mmp_open_id,
-				(long long unsigned int) mmp_from_disk.mmp_magic,
-				(long long unsigned int) mmp_from_disk.mmp_open_id,
-				(long long unsigned int) mmp_from_disk.mmp_seq,
-				mmp_from_disk.mmp_op,
-				mmp_from_disk.mmp_nodename);
+				(long long unsigned int) blk->ub_mmp.mmp_magic,
+				(long long unsigned int) blk->ub_mmp.mmp_open_id,
+				(long long unsigned int) blk->ub_mmp.mmp_seq,
+				blk->ub_mmp.mmp_op,
+				blk->ub_mmp.mmp_nodename);
 			rc = SET_ERROR(EBUSY); /* XXX choose a good error */
 			goto release_config_lock;
 		}

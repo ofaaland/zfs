@@ -593,9 +593,10 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	 * XXX should we skip this for some alloctypes?
 	 */
 	if (vd->vdev_ops->vdev_op_leaf) {
-		for (i=0; i<VDEV_MMP_ARRAYS; i++)
-			vd->vdev_mmp[i] = zio_buf_alloc(VDEV_LABELS*
-				MMP_BLOCKS_PER_LABEL*VDEV_UBERBLOCK_SIZE(vd));
+		if (alloctype == VDEV_ALLOC_LOAD)
+			for (i=0; i<VDEV_MMP_ARRAYS; i++)
+				vd->vdev_mmp[i] = zio_buf_alloc(VDEV_LABELS*
+					MMP_BLOCKS_PER_LABEL*VDEV_UBERBLOCK_SIZE(vd));
 	}
 
 	/*
