@@ -1541,7 +1541,6 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	zio_t *zio;
 	spa_t *spa = rvd->vdev_spa;
 	uberblock_t *ub;
-	vdev_t *vd;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
 	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
 	int error;
@@ -1566,16 +1565,6 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 			ub->ub_mmp.mmp_nodename);
 		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 	}
-
-	/* XXX to be moved to its own function */
-	zio = zio_root(spa, NULL, NULL, flags);
-	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-	vdev_read_all_mmpblocks(zio, rvd, flags, MMP_LATER_READ);
-	(void) zio_wait(zio);
-	spa_config_exit(spa, SCL_ALL, FTAG);
-
-	if ((vd=vdev_mmpblocks_changed(rvd)))
-		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 
 	return 0;
 }
@@ -1878,6 +1867,13 @@ int
 vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 {
 	int mmp_wait_secs = 10;
+	int waited = 0;
+	int error;
+	zio_t *zio;
+	spa_t *spa;
+	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
+	            ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
+	vdev_t *vd;
 
 	ASSERT(top_level_vdev);
 	ASSERT(top_level_vdev->vdev_spa);
@@ -1885,15 +1881,28 @@ vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 		top_level_vdev->vdev_spa->spa_load_state == SPA_LOAD_IMPORT ||
 		top_level_vdev->vdev_spa->spa_load_state == SPA_LOAD_TRYIMPORT
 		);
+	/* XXX need to assert spa_namespace_lock is held */
 
-	mutex_exit(&spa_namespace_lock);
+	spa = top_level_vdev->vdev_spa;
 
-	/*
-	 * Read/check/wait loop here.
-	 */
-	delay(HZ*mmp_wait_secs);
+	while (waited < mmp_wait_secs) {
+		mutex_exit(&spa_namespace_lock);
+		delay(HZ);
+		waited++;
+		mutex_enter(&spa_namespace_lock);
 
-	mutex_enter(&spa_namespace_lock);
+		zio = zio_root(spa, NULL, NULL, flags);
+		spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+		vdev_read_all_mmpblocks(zio, top_level_vdev, flags, MMP_LATER_READ);
+		error = zio_wait(zio);
+		spa_config_exit(spa, SCL_ALL, FTAG);
+
+		if (error)
+			return (SET_ERROR(error));
+
+		if ((vd=vdev_mmpblocks_changed(top_level_vdev)))
+			return (SET_ERROR(EBUSY)); /* XXX choose a good error */
+	}
 
 	return 0;
 }
