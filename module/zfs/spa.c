@@ -2800,12 +2800,8 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 
 	if (spa_writeable(spa)) {
 		spa_mmp_init_open_id(&spa->spa_mmp);
-
-		/*
-		 * Attempt to take over the pool via MMP.
-		 * XXX For now, do nothing if this fails; need to fix this.
-		 */
-		(void) spa_mmp_takeover(spa);
+		if ((error = spa_mmp_takeover(spa)))
+			return (SET_ERROR(error));
 	}
 
 	if (spa_writeable(spa) && (state == SPA_LOAD_RECOVER ||
@@ -6815,6 +6811,10 @@ spa_mmp_seq_bump(spa_t *spa)
 	mutex_exit(&spa->spa_mmp_lock);
 }
 
+/*
+ * Determine whether another node has the pool imported.  If so,
+ * return an error code.  Othwerise, return 0.
+ */
 int
 spa_mmp_takeover(spa_t *spa)
 {

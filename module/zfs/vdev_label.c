@@ -1544,14 +1544,17 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	vdev_t *vd;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
 	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
+	int error;
 
 	ASSERT(rvd);
 
 	zio = zio_root(spa, NULL, NULL, flags);
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
 	vdev_read_all_mmpblocks(zio, rvd, flags, MMP_INIT_READ);
-	(void) zio_wait(zio);
+	error = zio_wait(zio);
 	spa_config_exit(spa, SCL_ALL, FTAG);
+	if (error)
+		return (SET_ERROR(error));
 
 	if ((ub=vdev_mmpblocks_are_dirty(rvd, 0)) != NULL) {
 		vdev_mmp_foreign_id_warning(
