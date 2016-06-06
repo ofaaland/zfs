@@ -590,13 +590,17 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 
 	/*
 	 * If we're a leaf vdev, allocate memory for MMP blocks.
+	 * At this point, vd->vdev_top->vdev_ashift == 0, so
+	 * VDEV_UBERBLOCK_SIZE(vd) fails.  Use MAX_UBERBLOCK_SHIFT instead.
 	 * XXX should we skip this for some alloctypes?
 	 */
 	if (vd->vdev_ops->vdev_op_leaf) {
-		if (alloctype == VDEV_ALLOC_LOAD)
-			for (i=0; i<VDEV_MMP_ARRAYS; i++)
-				vd->vdev_mmp[i] = zio_buf_alloc(VDEV_LABELS*
-					MMP_BLOCKS_PER_LABEL*VDEV_UBERBLOCK_SIZE(vd));
+		for (i=0; i<VDEV_MMP_ARRAYS; i++) {
+			vd->vdev_mmp[i] = zio_buf_alloc(VDEV_LABELS*
+				MMP_BLOCKS_PER_LABEL*(1ULL << MAX_UBERBLOCK_SHIFT));
+			if (!vd->vdev_mmp[i])
+				return (SET_ERROR(ENOMEM));
+		}
 	}
 
 	/*

@@ -1422,12 +1422,6 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 	int c, l, n;
 	void *ub;
 
-#ifdef _KERNEL
-	printk("vdev_read_all_mmpblocks() pass %d\n", pass);
-#else
-	printf("vdev_read_all_mmpblocks() pass %d\n", pass);
-#endif
-
 	ASSERT(zio);
 	ASSERT(vd);
 	ASSERT(pass>=0 && pass<VDEV_MMP_ARRAYS);
