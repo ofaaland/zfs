@@ -346,8 +346,21 @@ vdev_alloc_common(spa_t *spa, uint_t id, uint64_t guid, vdev_ops_t *ops)
 	vd->vdev_ops = ops;
 	vd->vdev_state = VDEV_STATE_CLOSED;
 	vd->vdev_ishole = (ops == &vdev_hole_ops);
-	for (i=0; i<VDEV_MMP_ARRAYS; i++)
-		vd->vdev_mmp[i] = NULL;
+
+	/*
+	 * If we're a leaf vdev, allocate memory for MMP blocks.
+	 * At this point, vd->vdev_top->vdev_ashift == 0, so
+	 * VDEV_UBERBLOCK_SIZE(vd) fails.  Use MAX_UBERBLOCK_SHIFT instead.
+	 * XXX should we skip this for some alloctypes?
+	 */
+	for (i=0; i<VDEV_MMP_ARRAYS; i++) {
+		if (vd->vdev_ops->vdev_op_leaf) {
+			vd->vdev_mmp[i] = zio_buf_alloc(VDEV_LABELS*
+				MMP_BLOCKS_PER_LABEL*(1ULL << MAX_UBERBLOCK_SHIFT));
+		} else {
+			vd->vdev_mmp[i] = NULL;
+		}
+	}
 
 	list_link_init(&vd->vdev_config_dirty_node);
 	list_link_init(&vd->vdev_state_dirty_node);
@@ -382,7 +395,6 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 	char *type;
 	uint64_t guid = 0, islog, nparity;
 	vdev_t *vd;
-	int i;
 
 	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL);
 
@@ -585,21 +597,6 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 				    strcmp(aux, "external") == 0)
 					vd->vdev_label_aux = VDEV_AUX_EXTERNAL;
 			}
-		}
-	}
-
-	/*
-	 * If we're a leaf vdev, allocate memory for MMP blocks.
-	 * At this point, vd->vdev_top->vdev_ashift == 0, so
-	 * VDEV_UBERBLOCK_SIZE(vd) fails.  Use MAX_UBERBLOCK_SHIFT instead.
-	 * XXX should we skip this for some alloctypes?
-	 */
-	if (vd->vdev_ops->vdev_op_leaf) {
-		for (i=0; i<VDEV_MMP_ARRAYS; i++) {
-			vd->vdev_mmp[i] = zio_buf_alloc(VDEV_LABELS*
-				MMP_BLOCKS_PER_LABEL*(1ULL << MAX_UBERBLOCK_SHIFT));
-			if (!vd->vdev_mmp[i])
-				return (SET_ERROR(ENOMEM));
 		}
 	}
 
