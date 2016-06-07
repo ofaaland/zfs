@@ -148,6 +148,24 @@
 #include <sys/fs/zfs.h>
 
 /*
+ * Olaf Debug Stuff
+ */
+
+static void
+olabug(const char *fmt, ...)
+{
+	va_list adx;
+
+	va_start(adx, fmt);
+#ifdef _KERNEL
+	vprintk(fmt, adx);
+#else
+	vprintf(fmt, adx);
+#endif
+	va_end(adx);
+}
+
+/*
  * Basic routines to read and write from a vdev label.
  * Used throughout the rest of this file.
  */
@@ -1429,6 +1447,9 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 	for (c = 0; c < vd->vdev_children; c++)
 		vdev_read_all_mmpblocks(zio, vd->vdev_child[c], io_flags, pass);
 
+	if (!vd->vdev_ops)
+		return;
+
 	if (!vd->vdev_ops->vdev_op_leaf || !vdev_readable(vd))
 		return;
 
@@ -1455,7 +1476,7 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 			    VDEV_UBERBLOCK_OFFSET(vd,
 			    VDEV_FIRST_MMP_BLOCK(vd) + n),
 			    VDEV_UBERBLOCK_SIZE(vd),
-			    NULL, zio, io_flags);
+			    NULL, NULL, io_flags);
 		}
 	}
 }
@@ -1530,9 +1551,7 @@ vdev_mmp_foreign_id_warning(
 		mmp_op,
 		mmp_nodename);
 	dprintf(msg);
-#ifdef _KERNEL
-	printk(msg);
-#endif
+	olabug(msg);
 }
 
 int
@@ -1606,10 +1625,8 @@ vdev_mmpblock_overwrite_single(zio_t *zio, vdev_t *vd, int flags,
 
 	zio_buf_free(zbuf, VDEV_UBERBLOCK_SIZE(vd));
 
-	#ifdef _KERNEL
-			printk("vdev_mmpblock_overwrite_single() wrote mmp_block %d\n",
-				mmp_block);
-	#endif
+	olabug("vdev_mmpblock_overwrite_single() wrote mmp_block %d\n",
+		mmp_block);
 }
 
 /*
@@ -1801,9 +1818,7 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 	permutation = kmem_alloc(permutation_size*sizeof(uint64_t), KM_SLEEP);
 	create_random_permutation(permutation_size, permutation);
 
-#ifdef _KERNEL
-	printk("Reading and Writing %d MMP blocks in permutation order.\n", permutation_size);
-#endif
+	olabug("Reading and Writing %d MMP blocks in permutation order.\n", permutation_size);
 
 	/* Now walk through permutation in order, writing MMP block specified */
 	for (i=0; i<permutation_size; i++) {
@@ -1837,10 +1852,9 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 release_config_lock:
 	spa_config_exit(spa, SCL_ALL, FTAG);
 
-	#ifdef _KERNEL
-		if (rc)
-			printk("permuted write failed with rc: %d\n", rc);
-	#endif
+	if (rc) {
+		olabug("permuted write failed with rc: %d\n", rc);
+	}
 
 	if (ubbuf)
 		kmem_free(ubbuf, sizeof(uberblock_t));
