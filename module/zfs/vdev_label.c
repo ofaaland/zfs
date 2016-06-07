@@ -1439,16 +1439,15 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 {
 	int c, l, n;
 	void *ub;
+	int offset, size;
 
 	ASSERT(zio);
 	ASSERT(vd);
+	ASSERT(vd->vdev_ops);
 	ASSERT(pass>=0 && pass<VDEV_MMP_ARRAYS);
 
 	for (c = 0; c < vd->vdev_children; c++)
 		vdev_read_all_mmpblocks(zio, vd->vdev_child[c], io_flags, pass);
-
-	if (!vd->vdev_ops)
-		return;
 
 	if (!vd->vdev_ops->vdev_op_leaf || !vdev_readable(vd))
 		return;
@@ -1466,16 +1465,21 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 	 * like this.  The contiguous reads should be coalesced before they are
 	 * issued to the physical device, anyway.
 	 */
+
 	for (l = 0; l < VDEV_LABELS; l++) {
 		for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
-			ub = vd->vdev_mmp[pass] + (l*VDEV_LABELS+n)*
-			     VDEV_UBERBLOCK_SIZE(vd);
+			offset = (l*VDEV_LABELS+n)* VDEV_UBERBLOCK_SIZE(vd);
+			size = VDEV_UBERBLOCK_SIZE(vd),
+			ub = vd->vdev_mmp[pass] + offset;
 
+			if (1)
+				olabug("read pass %1d offset 0x%6x size 0x%5x\n", pass, offset, size);
+			else
 			vdev_label_read(zio, vd, l,
 			    (uberblock_t *) ub,
 			    VDEV_UBERBLOCK_OFFSET(vd,
 			    VDEV_FIRST_MMP_BLOCK(vd) + n),
-			    VDEV_UBERBLOCK_SIZE(vd),
+			    size,
 			    NULL, NULL, io_flags);
 		}
 	}
@@ -1550,8 +1554,8 @@ vdev_mmp_foreign_id_warning(
 		(long long unsigned int) mmp_seq,
 		mmp_op,
 		mmp_nodename);
-	dprintf(msg);
-	olabug(msg);
+	// dprintf(msg);
+	// olabug(msg);
 }
 
 int
@@ -1836,8 +1840,8 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 				(long long unsigned int) blk->ub_mmp.mmp_seq,
 				blk->ub_mmp.mmp_op,
 				blk->ub_mmp.mmp_nodename);
-			rc = SET_ERROR(EBUSY); /* XXX choose a good error */
-			goto release_config_lock;
+			//rc = SET_ERROR(EBUSY); /* XXX choose a good error */
+			//goto release_config_lock;
 		}
 
 		zio = zio_root(spa, NULL, NULL, flags);
