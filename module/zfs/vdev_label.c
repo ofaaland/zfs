@@ -1551,7 +1551,6 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
 	vdev_read_all_mmpblocks(zio, rvd, flags, MMP_INIT_READ);
 	error = zio_wait(zio);
-	spa_config_exit(spa, SCL_ALL, FTAG);
 	if (error)
 		return (SET_ERROR(error));
 
@@ -1565,6 +1564,8 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 			ub->ub_mmp.mmp_nodename);
 		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 	}
+
+	spa_config_exit(spa, SCL_ALL, FTAG);
 
 	return 0;
 }
