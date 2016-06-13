@@ -1474,7 +1474,8 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 			ub = vd->vdev_mmp[pass] + offset;
 
 			if (1)
-				olabug("read pass %1d offset 0x%6x size 0x%5x\n", pass, offset, size);
+				olabug("");
+				//olabug("read pass %1d offset 0x%6x size 0x%5x\n", pass, offset, size);
 			else
 			vdev_label_read(zio, vd, l,
 			    (uberblock_t *) ub,
@@ -1630,8 +1631,7 @@ vdev_mmpblock_overwrite_single(zio_t *zio, vdev_t *vd, int flags,
 
 	zio_buf_free(zbuf, VDEV_UBERBLOCK_SIZE(vd));
 
-	olabug("vdev_mmpblock_overwrite_single() wrote mmp_block %d\n",
-		mmp_block);
+	//olabug("vdev_mmpblock_overwrite_single() wrote mmp_block %d\n", mmp_block);
 }
 
 /*
