@@ -2801,7 +2801,12 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 	if (spa_writeable(spa)) {
 		spa_mmp_init_open_id(&spa->spa_mmp);
 		if ((error = spa_mmp_takeover(spa)))
-			return (SET_ERROR(error));
+#ifdef _KERNEL
+			printk("spa_mmp_takeover returned %d\n", error);
+#else
+			printf("spa_mmp_takeover returned %d\n", error);
+#endif
+			//return (SET_ERROR(error));
 	}
 
 	if (spa_writeable(spa) && (state == SPA_LOAD_RECOVER ||
