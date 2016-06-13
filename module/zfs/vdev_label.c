@@ -1468,7 +1468,8 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 
 	for (l = 0; l < VDEV_LABELS; l++) {
 		for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
-			offset = (l*VDEV_LABELS+n)* VDEV_UBERBLOCK_SIZE(vd);
+			offset = l*MMP_BLOCKS_PER_LABEL*VDEV_UBERBLOCK_SIZE(vd) +
+					n*VDEV_UBERBLOCK_SIZE(vd);
 			size = VDEV_UBERBLOCK_SIZE(vd),
 			ub = vd->vdev_mmp[pass] + offset;
 
