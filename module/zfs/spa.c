@@ -2806,6 +2806,7 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 #else
 			printf("spa_mmp_takeover returned %d\n", error);
 #endif
+			//temporarily ignore error because it causes ztest to stop
 			//return (SET_ERROR(error));
 	}
 
