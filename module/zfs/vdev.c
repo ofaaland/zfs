@@ -348,18 +348,16 @@ vdev_alloc_common(spa_t *spa, uint_t id, uint64_t guid, vdev_ops_t *ops)
 	vd->vdev_ishole = (ops == &vdev_hole_ops);
 
 	/*
-	 * If we're a leaf vdev, allocate memory for MMP blocks.
+	 * If we're a leaf, allocate memory for MMP blocks.
 	 * At this point, vd->vdev_top->vdev_ashift == 0, so
 	 * VDEV_UBERBLOCK_SIZE(vd) fails.  Use MAX_UBERBLOCK_SHIFT instead.
 	 * XXX should we skip this for some alloctypes?
 	 */
 	for (i=0; i<VDEV_MMP_ARRAYS; i++) {
-		if (vd->vdev_ops->vdev_op_leaf) {
-			vd->vdev_mmp[i] = zio_buf_alloc(VDEV_LABELS*
-				MMP_BLOCKS_PER_LABEL*(1ULL << MAX_UBERBLOCK_SHIFT));
-		} else {
+		if (vd->vdev_ops->vdev_op_leaf)
+			vd->vdev_mmp[i] = zio_buf_alloc(VDEV_MMP_ARRAY_SIZE);
+		else
 			vd->vdev_mmp[i] = NULL;
-		}
 	}
 
 	list_link_init(&vd->vdev_config_dirty_node);
@@ -675,9 +673,7 @@ vdev_free(vdev_t *vd)
 
 	for (i=0; i<VDEV_MMP_ARRAYS; i++)
 		if (vd->vdev_mmp[i])
-			zio_buf_free(vd->vdev_mmp[i],
-				VDEV_LABELS*MMP_BLOCKS_PER_LABEL*
-				VDEV_UBERBLOCK_SIZE(vd));
+			zio_buf_free(vd->vdev_mmp[i], VDEV_MMP_ARRAY_SIZE);
 
 	txg_list_destroy(&vd->vdev_ms_list);
 	txg_list_destroy(&vd->vdev_dtl_list);

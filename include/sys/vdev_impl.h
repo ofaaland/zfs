@@ -123,10 +123,11 @@ struct vdev_queue {
 	uint64_t	vq_lastoffset;
 };
 
-#define VDEV_MMP_ARRAYS 2
+#define VDEV_MMP_ARRAYS		2
 #define	MMP_INIT_READ		0
 #define	MMP_LATER_READ		1
 
+#define VDEV_MMP_ARRAY_SIZE	(VDEV_LABELS*MMP_BLOCKS_PER_LABEL*(1ULL << MAX_UBERBLOCK_SHIFT))
 
 /*
  * Virtual device descriptor
