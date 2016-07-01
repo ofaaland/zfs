@@ -1473,10 +1473,6 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 			size = VDEV_UBERBLOCK_SIZE(vd),
 			ub = vd->vdev_mmp[pass] + offset;
 
-			if (1)
-				olabug("");
-				//olabug("read pass %1d offset 0x%6x size 0x%5x\n", pass, offset, size);
-			else
 			vdev_label_read(zio, vd, l,
 			    (uberblock_t *) ub,
 			    VDEV_UBERBLOCK_OFFSET(vd,
