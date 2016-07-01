@@ -123,7 +123,7 @@ struct vdev_queue {
 	uint64_t	vq_lastoffset;
 };
 
-#define VDEV_MMP_ARRAYS		2
+#define	VDEV_MMP_ARRAYS		2
 #define	MMP_INIT_READ		0
 #define	MMP_LATER_READ		1
 
