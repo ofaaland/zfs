@@ -6835,14 +6835,11 @@ spa_mmp_takeover(spa_t *spa)
 	rc = vdev_mmpblock_foreign_id(spa->spa_root_vdev);
 	olabug("vdev_mmpblock_foreign_id() returned %d\n", rc);
 
-	if (rc && rc != EBUSY)
-		return rc;
-
-	if (rc)
+	if (rc == EBUSY)
 		rc = vdev_mmp_watch_for_activity(spa->spa_root_vdev);
 
 	if (rc)
-		return rc;
+		return (SET_ERROR(rc));
 
 	rc=vdev_mmp_block_permuted_write(spa->spa_root_vdev);
 	olabug("vdev_mmp_block_permuted_write() returned %d\n", rc);
