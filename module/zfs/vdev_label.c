@@ -1390,7 +1390,7 @@ vdev_mmpblocks_are_dirty(vdev_t *vd, int pass)
 
 	for (l = 0; l < VDEV_LABELS; l++) {
 		for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
-			ub = vd->vdev_mmp[pass] + (l*VDEV_LABELS+n)*
+			ub = vd->vdev_mmp[pass] + (l*MMP_BLOCKS_PER_LABEL+n)*
 			     VDEV_UBERBLOCK_SIZE(vd);
 
 			if (vdev_is_mmpblock_dirty(ub))
