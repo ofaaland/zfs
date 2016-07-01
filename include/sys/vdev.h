@@ -153,6 +153,7 @@ void vdev_mmpblock_store_open_id(vdev_t *top_level_vdev);
 void vdev_mmpblock_clear_all(vdev_t *top_level_vdev);
 int vdev_mmp_watch_for_activity(vdev_t *top_level_vdev);
 int vdev_mmp_block_permuted_write(vdev_t *top_level_vdev);
+void olabug(const char *fmt, ...);
 
 typedef enum {
 	VDEV_LABEL_CREATE,	/* create/add a new device */

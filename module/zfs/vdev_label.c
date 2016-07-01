@@ -151,7 +151,7 @@
  * Olaf Debug Stuff
  */
 
-static void
+void
 olabug(const char *fmt, ...)
 {
 	va_list adx;

@@ -2800,14 +2800,11 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 
 	if (spa_writeable(spa)) {
 		spa_mmp_init_open_id(&spa->spa_mmp);
-		if ((error = spa_mmp_takeover(spa)))
-#ifdef _KERNEL
-			printk("spa_mmp_takeover returned %d\n", error);
-#else
-			printf("spa_mmp_takeover returned %d\n", error);
-#endif
+		if ((error = spa_mmp_takeover(spa))) {
+			olabug("spa_mmp_takeover returned %d\n", error);
 			//temporarily ignore error because it causes ztest to stop
 			//return (SET_ERROR(error));
+		}
 	}
 
 	if (spa_writeable(spa) && (state == SPA_LOAD_RECOVER ||
@@ -6836,6 +6833,7 @@ spa_mmp_takeover(spa_t *spa)
 	 */
 
 	rc = vdev_mmpblock_foreign_id(spa->spa_root_vdev);
+	olabug("vdev_mmpblock_foreign_id() returned %d\n", rc);
 
 	if (rc && rc != EBUSY)
 		return rc;
@@ -6847,6 +6845,7 @@ spa_mmp_takeover(spa_t *spa)
 		return rc;
 
 	rc=vdev_mmp_block_permuted_write(spa->spa_root_vdev);
+	olabug("vdev_mmp_block_permuted_write() returned %d\n", rc);
 
 	return (SET_ERROR(rc));
 }
