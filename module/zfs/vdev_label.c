@@ -1342,6 +1342,12 @@ mmp_ubbuf_setup(vdev_t *rvd, uberblock_t *ubbuf)
  * MMP block but has an mmp_open_id != MMP_ID_CLEAN.
  *  0  = clean
  *  <0 = dirty
+ *  XXX dangerous definition of dirty.  e.g. if due to bug, foreign node writes
+ *      over the MMP block so mmp_magic != MMP_MAGIC this should be dirty, not clean.
+ *      Probably clean should be at minimum
+ *      	ub->ub_mmp.mmp_magic == MMP_MAGIC && ub->ub_mmp.mmp_open_id == MMP_CLEAN_ID
+ *      possibly even check entire mmp block structure and rest should be 0 or something.
+ *
  */
 static int
 vdev_is_mmpblock_dirty(uberblock_t *ub)
