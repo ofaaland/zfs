@@ -1576,8 +1576,8 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	zio = zio_root(spa, NULL, NULL, flags);
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
 	vdev_read_all_mmpblocks(zio, rvd, flags, MMP_INIT_READ);
-	spa_config_exit(spa, SCL_ALL, FTAG);
 	error = zio_wait(zio);
+	spa_config_exit(spa, SCL_ALL, FTAG);
 	if (error)
 		return (SET_ERROR(error));
 
