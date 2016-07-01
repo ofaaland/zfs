@@ -1757,7 +1757,7 @@ create_random_permutation(int count, uint64_t *target)
 
 	for (i=0; i<count; i++)
 		source[i] = i;
-	
+
 	for (i=0; i<count; i++) {
 		rand_element = spa_get_random(count-i);
 		target[i] = source[rand_element];
