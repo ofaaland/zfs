@@ -115,7 +115,8 @@
  * require the spa_namespace_lock to be held.
  *
  *	spa_lookup()		Lookup a spa_t by name, excluding those with
- *				spa_load_state == SPA_LOAD_IMPORT.
+ *				spa_load_state == SPA_LOAD_IMPORT,
+ *				SPA_LOAD_TRYIMPORT, or SPA_LOAD_OPEN.
  *
  *	spa_lookup_any()	Lookup a spa_t by name.
  *
