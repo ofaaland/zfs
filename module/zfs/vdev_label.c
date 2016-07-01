@@ -1748,8 +1748,6 @@ create_random_permutation(int count, uint64_t *target)
 	ASSERT(count>0);
 
 	source = kmem_alloc(count*sizeof(uint64_t), KM_SLEEP);
-	if (!source)
-		return;
 
 	/* Just to make troubleshooting easier */
 	bzero(source, sizeof(uint64_t)*count);
@@ -1791,21 +1789,12 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 
 	/* allocate space for array of pointers to vdevs */
 	leaf_vdev_array = kmem_alloc(leaf_array_size, KM_SLEEP);
-	if (!leaf_vdev_array) {
-		rc = SET_ERROR(ENOMEM);
-		goto release_config_lock;
-	}
-
 	bzero(leaf_vdev_array, leaf_array_size);
 	mutex_init(&leaf_vdev_array->leaf_lock, NULL, MUTEX_DEFAULT, NULL);
 	leaf_vdev_array->max_leaves = 1 +
 		(leaf_array_size-sizeof(struct leaf_vdev_array))/sizeof(vdev_t *);
 
 	ubbuf = kmem_alloc(sizeof(uberblock_t), KM_SLEEP);
-	if (!ubbuf) {
-		rc = SET_ERROR(ENOMEM);
-		goto release_config_lock;
-	}
 	mmp_ubbuf_setup(top_level_vdev, ubbuf);
 
 	/* array of pointers valid only while config lock held */
@@ -1973,8 +1962,6 @@ vdev_mmpblock_store_open_id(vdev_t *rvd)
 	ASSERT(rvd);
 
 	ubbuf = kmem_alloc(sizeof(uberblock_t), KM_SLEEP);
-	if (!ubbuf)
-		return;
 	mmp_ubbuf_setup(rvd, ubbuf);
 
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
