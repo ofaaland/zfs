@@ -1365,7 +1365,7 @@ vdev_is_mmpblock_dirty(uberblock_t *ub)
 
 /*
  * Given a top level vdev, walk the tree until the leaf vdevs are found.  For
- * each leaf, check the MMP blocks in vd->vdev_mmp[0].  If a foreign ID is found,
+ * each leaf, check the MMP blocks in vd->vdev_mmp[pass].  If a foreign ID is found,
  * return a pointer to the block; if all are clean, return NULL.
  */
 
@@ -1583,14 +1583,8 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	if (error)
 		return (SET_ERROR(error));
 
+	/* XXX BUG - dirty != foreign */
 	if ((ub=vdev_mmpblocks_are_dirty(rvd, 0)) != NULL) {
-		vdev_mmp_foreign_id_warning(
-			(long long unsigned int) spa->spa_mmp.mmp_open_id,
-			(long long unsigned int) ub->ub_mmp.mmp_magic,
-			(long long unsigned int) ub->ub_mmp.mmp_open_id,
-			(long long unsigned int) ub->ub_mmp.mmp_seq,
-			ub->ub_mmp.mmp_op,
-			ub->ub_mmp.mmp_nodename);
 		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 	}
 
