@@ -6832,8 +6832,8 @@ spa_mmp_takeover(spa_t *spa)
 	 * return 0; otherwise return EBUSY.
 	 */
 
-	rc = vdev_mmpblock_foreign_id(spa->spa_root_vdev);
-	olabug("vdev_mmpblock_foreign_id() returned %d\n", rc);
+	rc = vdev_mmpblocks_clean(spa->spa_root_vdev);
+	olabug("vdev_mmpblocks_clean() returned %d\n", rc);
 
 	if (rc == EBUSY)
 		rc = vdev_mmp_watch_for_activity(spa->spa_root_vdev);

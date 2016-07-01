@@ -1434,14 +1434,8 @@ vdev_mmpblocks_changed(vdev_t *vd)
 	return (NULL);
 }
 
-/*
- * Given a top level vdev, walk the tree until the leaf vdevs are found.  For
- * each leaf, read its MMP blocks from disk and record them in an array at
- * vd->vdev_mmp[pass].  See struct vdev for usage of vdev_mmp[pass].
- */
-
 static void
-vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
+vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 {
 	int c, l, n;
 	void *ub;
@@ -1453,7 +1447,7 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 	ASSERT(pass>=0 && pass<VDEV_MMP_ARRAYS);
 
 	for (c = 0; c < vd->vdev_children; c++)
-		vdev_read_all_mmpblocks(zio, vd->vdev_child[c], io_flags, pass);
+		vdev_read_mmpblocks(zio, vd->vdev_child[c], io_flags, pass);
 
 	if (!vd->vdev_ops->vdev_op_leaf || !vdev_readable(vd))
 		return;
@@ -1487,6 +1481,33 @@ vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 			    NULL, NULL, io_flags);
 		}
 	}
+}
+
+/*
+ * Given a top level vdev, walk the tree until the leaf vdevs are found.  For
+ * each leaf, read its MMP blocks from disk and record them in an array at
+ * vd->vdev_mmp[pass].  See struct vdev for usage of vdev_mmp[pass].
+ */
+
+static int
+vdev_read_all_mmpblocks(vdev_t *rvd, int pass)
+{
+	zio_t *zio;
+	spa_t *spa = rvd->vdev_spa;
+	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
+	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
+	int error;
+
+	ASSERT(rvd);
+	ASSERT(!(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL));
+
+	zio = zio_root(spa, NULL, NULL, flags);
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+	vdev_read_mmpblocks(zio, rvd, flags, pass);
+	error = zio_wait(zio);
+	spa_config_exit(spa, SCL_ALL, FTAG);
+
+	return error;
 }
 
 static uberblock_t *
@@ -1563,27 +1584,40 @@ vdev_mmp_foreign_id_warning(
 }
 
 int
-vdev_mmpblock_foreign_id(vdev_t *rvd)
+vdev_mmpblocks_foreign_id(vdev_t *rvd)
 {
-	zio_t *zio;
-	spa_t *spa = rvd->vdev_spa;
-	uberblock_t *ub;
-	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
-	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
 	int error;
+	spa_t *spa = rvd->vdev_spa;
+	void *ub;
 
 	ASSERT(rvd);
 	ASSERT(!(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL));
 
-	zio = zio_root(spa, NULL, NULL, flags);
-	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-	vdev_read_all_mmpblocks(zio, rvd, flags, MMP_INIT_READ);
-	error = zio_wait(zio);
-	spa_config_exit(spa, SCL_ALL, FTAG);
+	error = vdev_read_all_mmpblocks(rvd, MMP_LATER_READ);
 	if (error)
 		return (SET_ERROR(error));
 
-	/* XXX BUG - dirty != foreign */
+	if ((ub=vdev_mmpblocks_are_dirty(rvd, 0)) != NULL) {
+		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
+	}
+
+	return 0;
+}
+
+int
+vdev_mmpblocks_clean(vdev_t *rvd)
+{
+	int error;
+	spa_t *spa = rvd->vdev_spa;
+	void *ub;
+
+	ASSERT(rvd);
+	ASSERT(!(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL));
+
+	error = vdev_read_all_mmpblocks(rvd, MMP_INIT_READ);
+	if (error)
+		return (SET_ERROR(error));
+
 	if ((ub=vdev_mmpblocks_are_dirty(rvd, 0)) != NULL) {
 		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 	}
@@ -1874,10 +1908,7 @@ vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 	int mmp_wait_secs = 10;
 	int waited = 0;
 	int error;
-	zio_t *zio;
 	spa_t *spa;
-	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
-	            ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
 	vdev_t *vd;
 
 	ASSERT(top_level_vdev);
@@ -1896,11 +1927,7 @@ vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 		waited++;
 		mutex_enter(&spa_namespace_lock);
 
-		zio = zio_root(spa, NULL, NULL, flags);
-		spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-		vdev_read_all_mmpblocks(zio, top_level_vdev, flags, MMP_LATER_READ);
-		error = zio_wait(zio);
-		spa_config_exit(spa, SCL_ALL, FTAG);
+		error = vdev_read_all_mmpblocks(top_level_vdev, MMP_LATER_READ);
 
 		if (error)
 			return (SET_ERROR(error));

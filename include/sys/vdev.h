@@ -149,6 +149,7 @@ extern int vdev_label_number(uint64_t psise, uint64_t offset);
 extern nvlist_t *vdev_label_read_config(vdev_t *vd, uint64_t txg);
 extern void vdev_uberblock_load(vdev_t *, struct uberblock *, nvlist_t **);
 int vdev_mmpblock_foreign_id(vdev_t *top_level_vdev);
+int vdev_mmpblocks_clean(vdev_t *top_level_vdev);
 void vdev_mmpblock_store_open_id(vdev_t *top_level_vdev);
 void vdev_mmpblock_clear_all(vdev_t *top_level_vdev);
 int vdev_mmp_watch_for_activity(vdev_t *top_level_vdev);
