@@ -1548,7 +1548,7 @@ vdev_mmp_foreign_id_warning(
 		"Foreign ID found in MMP block:\n"
 		"me: open_id=%llu\n"
 		"foreign: magic=%llx\n"
-		"open_id=%lld\n"
+		"open_id=%llu\n"
 		"seq=%lld\n"
 		"op=%d\n"
 		"nodename=%s\n",
