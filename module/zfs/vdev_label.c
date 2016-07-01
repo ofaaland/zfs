@@ -1832,8 +1832,8 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 				(long long unsigned int) blk->ub_mmp.mmp_seq,
 				blk->ub_mmp.mmp_op,
 				blk->ub_mmp.mmp_nodename);
-			//rc = SET_ERROR(EBUSY); /* XXX choose a good error */
-			//goto release_config_lock;
+			rc = SET_ERROR(EBUSY); /* XXX choose a good error */
+			goto release_config_lock;
 		}
 
 		zio = zio_root(spa, NULL, NULL, flags);
