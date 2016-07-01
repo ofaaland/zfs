@@ -6846,7 +6846,9 @@ spa_mmp_takeover(spa_t *spa)
 	if (rc)
 		return rc;
 
-	return vdev_mmp_block_permuted_write(spa->spa_root_vdev);
+	rc=vdev_mmp_block_permuted_write(spa->spa_root_vdev);
+
+	return (SET_ERROR(rc));
 }
 
 int
