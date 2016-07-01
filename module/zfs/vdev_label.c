@@ -1558,8 +1558,8 @@ vdev_mmp_foreign_id_warning(
 		(long long unsigned int) mmp_seq,
 		mmp_op,
 		mmp_nodename);
-	// dprintf(msg);
-	// olabug(msg);
+	dprintf(msg);
+	olabug(msg);
 }
 
 int
