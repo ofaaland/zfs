@@ -1,0 +1,48 @@
+utility functions:
+	spa_lookup_any(const char *name)
+	vdev_mmp_foreign_id_warning(
+
+spa_load_impl()
+	spa_mmp_init_open_id(mmp_phys_t *mmp)
+	spa_mmp_takeover(spa_t *spa)
+		vdev_mmpblock_foreign_id(vdev_t *rvd)
+			vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
+			vdev_mmpblocks_are_dirty(vdev_t *vd, int pass)
+				vdev_is_mmpblock_dirty(uberblock_t *ub)
+
+		vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
+			vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
+			vdev_mmpblocks_changed(vdev_t *vd)
+
+		vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
+			mmp_ubbuf_setup(vdev_t *rvd, uberblock_t *ubbuf)
+			add_leaf_to_array(vdev_t *rvd, struct leaf_vdev_array *leaves)
+			create_random_permutation(int count, uint64_t *target)
+			vdev_mmpblock_foreign_id_check(vdev_t *vd, int flags, int mmp_block)
+			vdev_mmpblock_overwrite_single(zio_t *zio, vdev_t *vd, int flags,
+spa_create()
+	vdev_mmpblock_store_open_id(vdev_t *rvd)
+		mmp_ubbuf_setup(vdev_t *rvd, uberblock_t *ubbuf)
+		vdev_mmpblock_overwrite(zio_t *zio, vdev_t *vd, int flags,
+
+spa_add()
+	spa_mmp_init(mmp_phys_t *mmp)
+
+spa_sync()
+	spa_mmp_detect_foreign_import(spa_t *spa)
+		vdev_mmpblock_foreign_id(vdev_t *rvd)
+			see spa_mmp_takeover -> vdev_mmpblock_foreign_id for rest of flow
+	spa_mmp_seq_bump(spa_t *spa)
+
+vdev_config_sync()
+	uberblock_mmp_update(uberblock_t *ub, const mmp_phys_t *mmp, mmp_op_t op)
+
+spa_unload()
+	vdev_mmpblock_clear_all(vdev_t *rvd)
+
+zdb
+	dump_mmpblock(uberblock_t *ub, const char *header, const char *footer)
+
+
+XXX BUG: vdev_mmpblock_foreign_id() is actually checking whether block is dirty.  This
+	 needs a separate function.
