@@ -1484,7 +1484,7 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 }
 
 /*
- * Given a top level vdev, walk the tree until the leaf vdevs are found.  For
+ * Given a vdev, walk the tree until the leaf vdevs are found.  For
  * each leaf, read its MMP blocks from disk and record them in an array at
  * vd->vdev_mmp[pass].  See struct vdev for usage of vdev_mmp[pass].
  */
@@ -1584,11 +1584,10 @@ vdev_mmp_foreign_id_warning(
 }
 
 int
-vdev_mmpblocks_foreign_id(vdev_t *rvd)
+vdev_mmpblock_foreign_id(vdev_t *rvd)
 {
 	int error;
 	spa_t *spa = rvd->vdev_spa;
-	void *ub;
 
 	ASSERT(rvd);
 	ASSERT(!(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL));
@@ -1596,10 +1595,6 @@ vdev_mmpblocks_foreign_id(vdev_t *rvd)
 	error = vdev_read_all_mmpblocks(rvd, MMP_LATER_READ);
 	if (error)
 		return (SET_ERROR(error));
-
-	if ((ub=vdev_mmpblocks_are_dirty(rvd, 0)) != NULL) {
-		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
-	}
 
 	return 0;
 }
