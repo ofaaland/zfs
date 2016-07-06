@@ -1703,12 +1703,10 @@ vdev_mmpblock_overwrite(zio_t *zio, vdev_t *vd, int flags,
 		int m;
 		for (m = 0; m < MMP_BLOCKS_PER_LABEL; m++) {
 			mmp_block_index = VDEV_FIRST_MMP_BLOCK(vd) + m;
-			/*
 			vdev_label_write(zio, vd, l, zbuf,
 			    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
 			    VDEV_UBERBLOCK_SIZE(vd), NULL, zio->io_private,
 			    flags | ZIO_FLAG_DONT_PROPAGATE);
-			*/
 		}
 	}
 
