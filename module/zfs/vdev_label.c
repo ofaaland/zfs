@@ -1649,10 +1649,12 @@ vdev_mmpblock_overwrite_single(zio_t *zio, vdev_t *vd, int flags,
 		bcopy(ubbuf, zbuf, sizeof(uberblock_t));
 
 	mmp_block_index = VDEV_FIRST_MMP_BLOCK(vd) + n;
+	/*
 	vdev_label_write(zio, vd, l, zbuf,
 	    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
 	    VDEV_UBERBLOCK_SIZE(vd), NULL, zio->io_private,
 	    flags | ZIO_FLAG_DONT_PROPAGATE);
+	*/
 
 	zio_buf_free(zbuf, VDEV_UBERBLOCK_SIZE(vd));
 
