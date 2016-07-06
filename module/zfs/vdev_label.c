@@ -1437,6 +1437,26 @@ vdev_mmpblocks_changed(vdev_t *vd)
 }
 
 static void
+mmp_read_done(zio_t *zio)
+{
+	vdev_t *vd = zio->io_vd;
+	// spa_t *spa = zio->io_spa;
+	// zio_t *rio = zio->io_private;
+	uberblock_t *ub = zio->io_data;
+
+	olabug("vdev_uberblock_size 0x%x first_mmp_block_offset 0x%x vdev_state 0x%x \n",
+		VDEV_UBERBLOCK_SIZE(vd),
+		VDEV_UBERBLOCK_OFFSET(vd, VDEV_FIRST_MMP_BLOCK(vd)),
+		vd->vdev_state);
+	olabug("Read MMP block vdev_guid %llu path %s io_offset %x io_size %x\n",
+		vd->vdev_guid, vd->vdev_path, zio->io_offset, zio->io_size);
+	ASSERT3U(zio->io_size, ==, VDEV_UBERBLOCK_SIZE(vd));
+	ASSERT3U(zio->io_error, ==, 0);
+	ASSERT3U(uberblock_verify(ub), ==, 0);
+}
+
+
+static void
 vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 {
 	int c, l, n;
@@ -1451,8 +1471,13 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 	for (c = 0; c < vd->vdev_children; c++)
 		vdev_read_mmpblocks(zio, vd->vdev_child[c], io_flags, pass);
 
-	if (!vd->vdev_ops->vdev_op_leaf || !vdev_readable(vd))
+	if (!vd->vdev_ops->vdev_op_leaf)
 		return;
+
+ 	if (!vdev_readable(vd))
+		return;
+
+	ASSERT(vd->vdev_children == 0);
 
 	/*
 	 * This assert applies only to leaf vdevs.
@@ -1480,7 +1505,7 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 			    VDEV_UBERBLOCK_OFFSET(vd,
 			    VDEV_FIRST_MMP_BLOCK(vd) + n),
 			    size,
-			    NULL, NULL, io_flags);
+			    mmp_read_done, NULL, io_flags);
 		}
 	}
 }
