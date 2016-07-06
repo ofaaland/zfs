@@ -1440,19 +1440,15 @@ static void
 mmp_read_done(zio_t *zio)
 {
 	vdev_t *vd = zio->io_vd;
-	// spa_t *spa = zio->io_spa;
-	// zio_t *rio = zio->io_private;
-	uberblock_t *ub = zio->io_data;
+	//int *lb = zio->io_private;
+	spa_t *spa = zio->io_spa;
+	//uberblock_t *ub = zio->io_data;
 
-	olabug("vdev_uberblock_size 0x%x first_mmp_block_offset 0x%x vdev_state 0x%x \n",
-		VDEV_UBERBLOCK_SIZE(vd),
-		VDEV_UBERBLOCK_OFFSET(vd, VDEV_FIRST_MMP_BLOCK(vd)),
-		vd->vdev_state);
-	olabug("Read MMP block vdev_guid %llu path %s io_offset %x io_size %x\n",
-		vd->vdev_guid, vd->vdev_path, zio->io_offset, zio->io_size);
-	ASSERT3U(zio->io_size, ==, VDEV_UBERBLOCK_SIZE(vd));
+	olabug("MMP block read io_error %d vdev_state %d spa_state %d spa_import_flags 0x%x spa_suspended %d \n",
+		zio->io_error, vd->vdev_state, spa->spa_state, spa->spa_import_flags, (int) spa->spa_suspended);
+	//ASSERT3U(zio->io_size, ==, VDEV_UBERBLOCK_SIZE(vd));
 	ASSERT3U(zio->io_error, ==, 0);
-	ASSERT3U(uberblock_verify(ub), ==, 0);
+	//ASSERT3U(uberblock_verify(ub), ==, 0);
 }
 
 
@@ -1462,14 +1458,17 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 	int c, l, n;
 	void *ub;
 	int offset, size;
+	spa_t *spa = vd->vdev_spa;
+	int error;
+	int labelblock[2];
 
-	ASSERT(zio);
+	ASSERT(zio == NULL);
 	ASSERT(vd);
 	ASSERT(vd->vdev_ops);
 	ASSERT(pass>=0 && pass<VDEV_MMP_ARRAYS);
 
 	for (c = 0; c < vd->vdev_children; c++)
-		vdev_read_mmpblocks(zio, vd->vdev_child[c], io_flags, pass);
+		vdev_read_mmpblocks(NULL, vd->vdev_child[c], io_flags, pass);
 
 	if (!vd->vdev_ops->vdev_op_leaf)
 		return;
@@ -1499,13 +1498,21 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 					n*VDEV_UBERBLOCK_SIZE(vd);
 			size = VDEV_UBERBLOCK_SIZE(vd),
 			ub = vd->vdev_mmp[pass] + offset;
+			labelblock[0] = l;
+			labelblock[1] = n;
 
+			zio = zio_root(spa, NULL, NULL, io_flags);
 			vdev_label_read(zio, vd, l,
 			    (uberblock_t *) ub,
 			    VDEV_UBERBLOCK_OFFSET(vd,
 			    VDEV_FIRST_MMP_BLOCK(vd) + n),
 			    size,
-			    mmp_read_done, NULL, io_flags);
+			    mmp_read_done, labelblock, io_flags);
+			error = zio_wait(zio);
+	if (1)
+	olabug("vdev_read_mmpblocks: error %d label %d mmp block %d size 0x%x L0 UB0 offset 0x%x offset 0x%x\n",
+		error, l, n, size, VDEV_UBERBLOCK_OFFSET(vd,0),
+		VDEV_UBERBLOCK_OFFSET(vd, VDEV_FIRST_MMP_BLOCK(vd) + n));
 		}
 	}
 }
@@ -1519,22 +1526,18 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 static int
 vdev_read_all_mmpblocks(vdev_t *rvd, int pass)
 {
-	zio_t *zio;
 	spa_t *spa = rvd->vdev_spa;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
 	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
-	int error;
 
 	ASSERT(rvd);
 	ASSERT(!(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL));
 
-	zio = zio_root(spa, NULL, NULL, flags);
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-	vdev_read_mmpblocks(zio, rvd, flags, pass);
-	error = zio_wait(zio);
+	vdev_read_mmpblocks(NULL, rvd, flags, pass);
 	spa_config_exit(spa, SCL_ALL, FTAG);
 
-	return error;
+	return 0;
 }
 
 static uberblock_t *
