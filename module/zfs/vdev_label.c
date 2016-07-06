@@ -1043,10 +1043,12 @@ vdev_uberblock_sync(zio_t *zio, uberblock_t *ub, vdev_t *vd, int flags)
 		if (vd->vdev_spa->spa_state == POOL_STATE_ACTIVE) {
 			mmp_block_index = VDEV_FIRST_MMP_BLOCK(vd) +
 			    spa_get_random(MMP_BLOCKS_PER_LABEL);
+			/*
 			vdev_label_write(zio, vd, l, ubbuf,
 			    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
 			    VDEV_UBERBLOCK_SIZE(vd), vdev_uberblock_sync_done,
 			    zio->io_private, flags | ZIO_FLAG_DONT_PROPAGATE);
+			*/
 		}
 	}
 
