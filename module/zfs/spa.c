@@ -2802,8 +2802,9 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 		spa_mmp_init_open_id(&spa->spa_mmp);
 		if ((error = spa_mmp_takeover(spa))) {
 			olabug("spa_mmp_takeover returned %d\n", error);
-			//temporarily ignore error because it causes ztest to stop
-			//return (SET_ERROR(error));
+			//temporarily ignore EBUSY error because it causes ztest to stop
+			if (error != EBUSY)
+				return (SET_ERROR(error));
 		}
 	}
 
@@ -6834,6 +6835,7 @@ spa_mmp_takeover(spa_t *spa)
 
 	rc = vdev_mmpblocks_clean(spa->spa_root_vdev);
 	olabug("vdev_mmpblocks_clean() returned %d\n", rc);
+	ASSERT(rc != 52);
 
 	if (rc == EBUSY)
 		rc = vdev_mmp_watch_for_activity(spa->spa_root_vdev);
