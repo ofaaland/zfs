@@ -1515,10 +1515,11 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 			    size,
 			    mmp_read_done, labelblock, io_flags);
 			error = zio_wait(zio);
-	if (1)
-	olabug("vdev_read_mmpblocks: error %d label %d mmp block %d size 0x%x L0 UB0 offset 0x%x offset 0x%x\n",
-		error, l, n, size, VDEV_UBERBLOCK_OFFSET(vd,0),
-		VDEV_UBERBLOCK_OFFSET(vd, VDEV_FIRST_MMP_BLOCK(vd) + n));
+			if (error != 0 && error != ECKSUM)
+				olabug("vdev_read_mmpblocks: error %d label %d mmp block %d"
+					" size 0x%x L0 UB0 offset 0x%x offset 0x%x\n",
+					error, l, n, size, VDEV_UBERBLOCK_OFFSET(vd,0),
+					VDEV_UBERBLOCK_OFFSET(vd, VDEV_FIRST_MMP_BLOCK(vd) + n));
 		}
 	}
 }
