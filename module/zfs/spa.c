@@ -6833,8 +6833,9 @@ spa_mmp_takeover(spa_t *spa)
 	 * return 0; otherwise return EBUSY.
 	 */
 
+	olabug("entered spa_mmp_takeover()\n");
+
 	rc = vdev_mmpblocks_clean(spa->spa_root_vdev);
-	olabug("vdev_mmpblocks_clean() returned %d\n", rc);
 	ASSERT(rc != 52);
 
 	if (rc == EBUSY)
@@ -6844,7 +6845,6 @@ spa_mmp_takeover(spa_t *spa)
 		return (SET_ERROR(rc));
 
 	rc=vdev_mmp_block_permuted_write(spa->spa_root_vdev);
-	olabug("vdev_mmp_block_permuted_write() returned %d\n", rc);
 
 	return (SET_ERROR(rc));
 }
