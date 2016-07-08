@@ -1443,8 +1443,8 @@ mmp_read_done(zio_t *zio)
 	//uberblock_t *ub = zio->io_data;
 
 	/*
-	 * XXX ECKSUM occurs even during read of media during a pool create, so
-	 * ignore it for now.
+	 * XXX ECKSUM occurs during read of media during first sync after a
+	 * pool create, so ignore it for now.
 	 */
 	if (zio->io_error != 0 && zio->io_error != ECKSUM)
 		olabug("MMP block read io_error %d vdev_path %s vdev_physpath %s vdev_state %d"
