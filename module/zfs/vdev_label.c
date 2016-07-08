@@ -1627,8 +1627,6 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	ASSERT(rvd);
 	ASSERT(!(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL));
 
-	olabug("entered vdev_mmpblock_foreign_id()\n");
-
 	error = vdev_read_all_mmpblocks(rvd, MMP_LATER_READ);
 	if (error)
 		return (SET_ERROR(error));
@@ -1645,8 +1643,6 @@ vdev_mmpblocks_clean(vdev_t *rvd)
 
 	ASSERT(rvd);
 	ASSERT(!(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL));
-
-	olabug("entered vdev_mmpblocks_clean()\n");
 
 	error = vdev_read_all_mmpblocks(rvd, MMP_INIT_READ);
 	if (error)
@@ -1849,8 +1845,6 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 
 	ASSERT(top_level_vdev);
 
-	olabug("entered vdev_mmp_block_permuted_write()\n");
-
 	/* allocate space for array of pointers to vdevs */
 	leaf_vdev_array = kmem_alloc(leaf_array_size, KM_SLEEP);
 	bzero(leaf_vdev_array, leaf_array_size);
@@ -1955,8 +1949,6 @@ vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 		);
 	/* XXX need to assert spa_namespace_lock is held */
 
-	olabug("entered vdev_mmp_watch_for_activity()\n");
-
 	spa = top_level_vdev->vdev_spa;
 
 	while (waited < mmp_wait_secs) {
@@ -2019,8 +2011,6 @@ vdev_mmpblock_store_open_id(vdev_t *rvd)
 	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
 
 	ASSERT(rvd);
-
-	olabug("entered vdev_mmpblock_store_open_id()\n");
 
 	ubbuf = kmem_alloc(sizeof(uberblock_t), KM_SLEEP);
 	mmp_ubbuf_setup(rvd, ubbuf);

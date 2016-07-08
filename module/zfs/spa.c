@@ -6833,8 +6833,6 @@ spa_mmp_takeover(spa_t *spa)
 	 * return 0; otherwise return EBUSY.
 	 */
 
-	olabug("entered spa_mmp_takeover()\n");
-
 	rc = vdev_mmpblocks_clean(spa->spa_root_vdev);
 	ASSERT(rc != 52);
 
