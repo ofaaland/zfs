@@ -1444,10 +1444,16 @@ mmp_read_done(zio_t *zio)
 	spa_t *spa = zio->io_spa;
 	//uberblock_t *ub = zio->io_data;
 
-	olabug("MMP block read io_error %d vdev_state %d spa_state %d spa_import_flags 0x%x spa_suspended %d \n",
-		zio->io_error, vd->vdev_state, spa->spa_state, spa->spa_import_flags, (int) spa->spa_suspended);
+	/*
+	 * XXX ECKSUM occurs even during read of media during a pool create, so
+	 * ignore it for now.
+	 */
+	if (zio->io_error != 0 && zio->io_error != ECKSUM)
+		olabug("MMP block read io_error %d vdev_path %s vdev_physpath %s vdev_state %d"
+			" spa_state %d spa_import_flags 0x%x spa_suspended %d \n",
+			zio->io_error, vd->vdev_path, vd->vdev_physpath, vd->vdev_state,
+			spa->spa_state, spa->spa_import_flags, (int) spa->spa_suspended);
 	//ASSERT3U(zio->io_size, ==, VDEV_UBERBLOCK_SIZE(vd));
-	ASSERT3U(zio->io_error, ==, 0);
 	//ASSERT3U(uberblock_verify(ub), ==, 0);
 }
 
