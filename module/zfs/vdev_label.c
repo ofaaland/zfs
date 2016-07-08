@@ -1739,7 +1739,7 @@ vdev_mmpblock_overwrite(zio_t *zio, vdev_t *vd, int flags,
 			mmp_block_index = VDEV_FIRST_MMP_BLOCK(vd) + m;
 			vdev_label_write(zio, vd, l, zbuf,
 			    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
-			    VDEV_UBERBLOCK_SIZE(vd), NULL, zio->io_private,
+			    VDEV_UBERBLOCK_SIZE(vd), NULL, NULL,
 			    flags | ZIO_FLAG_DONT_PROPAGATE);
 		}
 	}
