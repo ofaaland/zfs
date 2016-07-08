@@ -1872,8 +1872,6 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 	permutation = kmem_alloc(permutation_size*sizeof(uint64_t), KM_SLEEP);
 	create_random_permutation(permutation_size, permutation);
 
-	olabug("Reading and Writing %d MMP blocks in permutation order.\n", permutation_size);
-
 	/* Now walk through permutation in order, writing MMP block specified */
 	for (i=0; i<permutation_size; i++) {
 
