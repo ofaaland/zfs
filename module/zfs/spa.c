@@ -6834,7 +6834,7 @@ spa_mmp_takeover(spa_t *spa)
 	 */
 
 	rc = vdev_mmpblocks_clean(spa->spa_root_vdev);
-	ASSERT(rc != 52);
+	ASSERT(rc != ECKSUM);
 
 	if (rc == EBUSY)
 		rc = vdev_mmp_watch_for_activity(spa->spa_root_vdev);
