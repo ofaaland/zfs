@@ -2802,9 +2802,7 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 		spa_mmp_init_open_id(&spa->spa_mmp);
 		if ((error = spa_mmp_takeover(spa))) {
 			olabug("spa_mmp_takeover returned %d\n", error);
-			//temporarily ignore EBUSY error because it causes ztest to stop
-			if (error != EBUSY)
-				return (SET_ERROR(error));
+			return (SET_ERROR(error));
 		}
 	}
 
