@@ -1271,8 +1271,11 @@ spa_unload(spa_t *spa)
 
 	/*
 	 * Issue MMP block writes to indicate pool not imported
-	if (spa->spa_root_vdev)
-		vdev_mmpblock_clear_all(spa->spa_root_vdev);
+	 * XXX This introduces a race.  May be a better way it can be done,
+	 * so leaving this reminder instead of removing completely.
+	 *
+	 *if (spa->spa_root_vdev)
+	 *	vdev_mmpblock_clear_all(spa->spa_root_vdev);
 	 */
 
 	/*
