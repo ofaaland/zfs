@@ -1338,25 +1338,45 @@ mmp_ubbuf_setup(vdev_t *rvd, uberblock_t *ubbuf)
 }
 
 /*
- * Test whether a given in-memory mmp block is not clean, meaning it is a valid
- * MMP block but has an mmp_open_id != MMP_ID_CLEAN.
- *  0  = clean
+ * Test whether a given in-memory mmp block is dirty. Return value:
+ *   0 = clean
  *  <0 = dirty
- *  XXX dangerous definition of dirty.  e.g. if due to bug, foreign node writes
- *      over the MMP block so mmp_magic != MMP_MAGIC this should be dirty, not clean.
- *      Probably clean should be at minimum
- *      	ub->ub_mmp.mmp_magic == MMP_MAGIC && ub->ub_mmp.mmp_open_id == MMP_CLEAN_ID
- *      possibly even check entire mmp block structure and rest should be 0 or something.
  *
+ * Defintion of a clean MMP block:
+ *  1. Uberblock containing it passes checksum verification
+ *  2. ub->ub_mmp.mmp_magic == MMP_MAGIC
+ *  3. ub->ub_mmp.mmp_open_id == MMP_CLEAN_ID
+ *
+ *  dirty == (!clean)
+ *
+ *  XXX need to update this code to use the above definition of clean/dirty.
+ *  See module/zfs/zio_checksum.c to find the right function for validating
+ *  the checksum, and to determine whether there are corner cases (e.g.
+ *  upgrading to a different/better checksum type).
+ *  vdev_label_read() uses zio->io_prop.zp_checksum = ZIO_CHECKSUM_LABEL.
+ *
+ *  uberblock_verify(uberblock_t *ub)			return 0 on success
+ *  	tests for magic value (watch out for byte swap)
+ *  zio_checksum_error()				returns ECKSUM on fail
+ *  	works only on zio's
+ *  	figures out on its own which checksum to use and where to find it
+ *  	called by zio_checksum_verify()
+ *
+ *  zio_eck_t					structure containing checksum
+ *
+ *  zio_cksum_t
+ *  ZEC_MAGIC
  */
 static int
 vdev_is_mmpblock_dirty(uberblock_t *ub)
 {
 	ASSERT(ub);
 
+	/* XXX need to account for byte swapping */
 	if (ub->ub_mmp.mmp_magic != MMP_MAGIC)
 		return 0;
 
+	/* XXX need to account for byte swapping */
 	if (ub->ub_mmp.mmp_open_id == MMP_CLEAN_ID)
 		return 0;
 
