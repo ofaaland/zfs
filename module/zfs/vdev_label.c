@@ -1047,6 +1047,7 @@ vdev_uberblock_sync(zio_t *zio, uberblock_t *ub, vdev_t *vd, int flags)
 			    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
 			    VDEV_UBERBLOCK_SIZE(vd), vdev_uberblock_sync_done,
 			    zio->io_private, flags | ZIO_FLAG_DONT_PROPAGATE);
+			olabug("need to copy to vdev_mmp[] in vdev_uberblock_sync\n");
 		}
 	}
 
