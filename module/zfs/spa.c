@@ -6406,7 +6406,7 @@ spa_sync(spa_t *spa, uint64_t txg)
 
 
 	if (spa_mmp_detect_foreign_import(spa) != 0)
-		dprintf("MMP fault detected");
+		olabug("MMP fault detected");
 
 	/*
 	 * Check for another active import.
