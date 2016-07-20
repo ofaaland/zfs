@@ -6404,9 +6404,14 @@ spa_sync(spa_t *spa, uint64_t txg)
 
 	VERIFY(spa_writeable(spa));
 
-
-	if (spa_mmp_detect_foreign_import(spa) != 0)
-		olabug("MMP fault detected\n");
+	/*
+	 * At first sync after a create, MMP blocks have not been written yet.
+	 * Skipping the test is safe because there is no data to protect.
+	 */
+	if (spa_syncing_txg(spa) > 0)
+		if (spa_mmp_detect_foreign_import(spa) != 0)
+			olabug("MMP fault detected syncing txg %u\n",
+			       (long long unsigned) spa_syncing_txg(spa));
 
 	/*
 	 * Check for another active import.
