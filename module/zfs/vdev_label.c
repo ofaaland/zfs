@@ -1651,6 +1651,8 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	if (error)
 		return (SET_ERROR(error));
 
+	olabug("XXX MISSING COMPARISON IN vdev_mmpblock_foreign_id");
+
 	return 0;
 }
 
