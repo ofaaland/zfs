@@ -1,0 +1,60 @@
+#!/bin/bash
+
+zdb=cmd/zdb/zdb
+sudo=sudo
+
+function helpme() {
+	echo "usage: $0 <leaf> <label> <block> <block_source>"
+	echo "          leaf=path to leaf"
+	echo "		label in [0,4]"
+	echo "		block in [0,3]"
+	echo "		block_source=path to block_source"
+	exit 1
+}
+
+if [ -z "$1" ]; then
+	helpme
+fi
+
+if [ "$1" = "-h" ]; then
+	helpme
+fi
+
+leaf=$1
+label=$2
+block=$3
+block_source=$4
+
+ashift=$($sudo $zdb -l $1 | awk '$1=="ashift:" {print $2; exit}')
+
+mmp_count=3					# MMP blocks per label
+label_size=$((256*1024))			# label size (256K)
+ub_size=$((2**$ashift))				# Uberblock size (2^ashift)
+ub_count=$((128*1024/$ub_size))			# Uberblocks/label (128K / Uberblock size)
+ub_slot=$(($ub_count-$mmp_count+$block))	# Uberblock slot MMP block $block resides in
+leaf_size=$(stat --printf="%s" $leaf)		# Size of leaf vdev in bytes
+
+if [ $label -lt 2 ]; then
+	label_offset=$(($label*$label_size))
+else
+	label_offset=$(($leaf_size+($label-4)*$label_size))
+fi
+
+ub_offset=$(($label_offset+128*1024+$ub_slot*$ub_size))
+
+echo "Calculated Values"
+echo ashift=$ashift
+echo block=$block
+echo label=$label
+echo block_source=$block_source
+echo label_offset=$label_offset
+echo label_size=$label_size
+echo leaf=$leaf
+echo mmp_count=$mmp_count
+echo ub_count=$ub_count
+echo ub_offset=$ub_offset
+echo ub_size=$ub_size
+echo ub_slot=$ub_slot
+
+echo "dd cmd:"
+echo "dd if=$block_source of=$leaf bs=512 seek=$(($ub_offset/512)) skip=$(($ub_offset/512)) count=$(($ub_size/512)) conv=notrunc"
