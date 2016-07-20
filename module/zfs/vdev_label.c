@@ -147,6 +147,15 @@
 #include <sys/dsl_scan.h>
 #include <sys/fs/zfs.h>
 
+#define VDEV_MMP_OFFSET(vdev,index)		(index*VDEV_UBERBLOCK_SIZE(vdev))
+#define MMP_INDEX_TO_LABEL(index)		(index / MMP_BLOCKS_PER_LABEL)
+#define MMP_INDEX_TO_MMP_SLOT(index)		(index % MMP_BLOCKS_PER_LABEL)
+#define MMP_LABEL_SLOT_TO_MMP_INDEX(label,mmp_slot) \
+					(label*MMP_BLOCKS_PER_LABEL + mmp_slot)
+#define MMP_SLOT_TO_UBERBLOCK_SLOT(vdev,mmp_slot) \
+					(VDEV_FIRST_MMP_BLOCK(vdev) + mmp_slot)
+#define MMP_BLOCKS_PER_VDEV		(VDEV_LABELS * MMP_BLOCKS_PER_LABEL)
+
 /*
  * Olaf Debug Stuff
  */
@@ -1041,10 +1050,10 @@ vdev_uberblock_sync(zio_t *zio, uberblock_t *ub, vdev_t *vd, int flags)
 		 * Just checking for ACTIVE has worked so far in brief testing.
 		 */
 		if (vd->vdev_spa->spa_state == POOL_STATE_ACTIVE) {
-			mmp_block_index = VDEV_FIRST_MMP_BLOCK(vd) +
-			    spa_get_random(MMP_BLOCKS_PER_LABEL);
+			mmp_block_index = spa_get_random(MMP_BLOCKS_PER_LABEL);
 			vdev_label_write(zio, vd, l, ubbuf,
-			    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
+			    VDEV_UBERBLOCK_OFFSET(vd, 
+				MMP_SLOT_TO_UBERBLOCK_SLOT(vd, mmp_block_index)),
 			    VDEV_UBERBLOCK_SIZE(vd), vdev_uberblock_sync_done,
 			    zio->io_private, flags | ZIO_FLAG_DONT_PROPAGATE);
 			olabug("need to copy to vdev_mmp[] in vdev_uberblock_sync\n");
@@ -1411,8 +1420,8 @@ vdev_mmpblocks_are_dirty(vdev_t *vd, int pass)
 
 	for (l = 0; l < VDEV_LABELS; l++) {
 		for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
-			ub = vd->vdev_mmp[pass] + (l*MMP_BLOCKS_PER_LABEL+n)*
-			     VDEV_UBERBLOCK_SIZE(vd);
+			ub = vd->vdev_mmp[pass] +
+			     VDEV_MMP_OFFSET(vd, MMP_LABEL_SLOT_TO_MMP_INDEX(l,n));
 
 			if (vdev_is_mmpblock_dirty(ub))
 				return ((uberblock_t *) ub);
@@ -1448,7 +1457,7 @@ vdev_mmpblocks_changed(vdev_t *vd)
 	if (!vd->vdev_mmp[0] || !vd->vdev_mmp[1])
 		return (NULL);
 
-	size = VDEV_LABELS*MMP_BLOCKS_PER_LABEL*VDEV_UBERBLOCK_SIZE(vd);
+	size = MMP_BLOCKS_PER_VDEV*VDEV_UBERBLOCK_SIZE(vd);
 	if (memcmp(vd->vdev_mmp[0], vd->vdev_mmp[1], size) != 0)
 		return (vd);
 
@@ -1519,9 +1528,9 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 
 	for (l = 0; l < VDEV_LABELS; l++) {
 		for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
-			offset = l*MMP_BLOCKS_PER_LABEL*VDEV_UBERBLOCK_SIZE(vd) +
-					n*VDEV_UBERBLOCK_SIZE(vd);
-			size = VDEV_UBERBLOCK_SIZE(vd),
+			offset = VDEV_MMP_OFFSET(vd,
+				 MMP_LABEL_SLOT_TO_MMP_INDEX(l,n));
+			size = VDEV_UBERBLOCK_SIZE(vd);
 			ub = vd->vdev_mmp[pass] + offset;
 			labelblock[0] = l;
 			labelblock[1] = n;
@@ -1530,7 +1539,7 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 			vdev_label_read(zio, vd, l,
 			    (uberblock_t *) ub,
 			    VDEV_UBERBLOCK_OFFSET(vd,
-			    VDEV_FIRST_MMP_BLOCK(vd) + n),
+			    MMP_SLOT_TO_UBERBLOCK_SLOT(vd,n)),
 			    size,
 			    mmp_read_done, labelblock, io_flags);
 			error = zio_wait(zio);
@@ -1538,7 +1547,7 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 				olabug("vdev_read_mmpblocks: error %d label %d mmp block %d"
 					" size 0x%x L0 UB0 offset 0x%x offset 0x%x\n",
 					error, l, n, size, VDEV_UBERBLOCK_OFFSET(vd,0),
-					VDEV_UBERBLOCK_OFFSET(vd, VDEV_FIRST_MMP_BLOCK(vd) + n));
+					VDEV_UBERBLOCK_OFFSET(vd, MMP_SLOT_TO_UBERBLOCK_SLOT(vd,n)));
 		}
 	}
 }
@@ -1569,11 +1578,13 @@ vdev_read_all_mmpblocks(vdev_t *rvd, int pass)
 static uberblock_t *
 vdev_mmpblock_foreign_id_check(vdev_t *vd, int flags, int mmp_block)
 {
-	int l = mmp_block / MMP_BLOCKS_PER_LABEL;
-	int n = mmp_block % MMP_BLOCKS_PER_LABEL;
+	int l,n;
 	zio_t *zio;
 	spa_t *spa;
 	int rc;
+
+	l = MMP_INDEX_TO_LABEL(mmp_block);
+	n = MMP_INDEX_TO_MMP_SLOT(mmp_block);
 
 	ASSERT(vd);
 	ASSERT(l < VDEV_LABELS);
@@ -1588,9 +1599,9 @@ vdev_mmpblock_foreign_id_check(vdev_t *vd, int flags, int mmp_block)
 	zio = zio_root(spa, NULL, NULL, flags);
 	vdev_label_read(zio, vd, l,
 	    vd->vdev_mmp[MMP_LATER_READ] +
-	    mmp_block*VDEV_UBERBLOCK_SIZE(vd),
+	    VDEV_MMP_OFFSET(vd,mmp_block),
 	    VDEV_UBERBLOCK_OFFSET(vd,
-	    VDEV_FIRST_MMP_BLOCK(vd) + n),
+	    MMP_SLOT_TO_UBERBLOCK_SLOT(vd,n)),
 	    VDEV_UBERBLOCK_SIZE(vd),
 	    NULL, NULL, flags);
 	rc = zio_wait(zio);
@@ -1599,11 +1610,11 @@ vdev_mmpblock_foreign_id_check(vdev_t *vd, int flags, int mmp_block)
 		return NULL;
 
 	if (memcmp(
-	    vd->vdev_mmp[MMP_INIT_READ] + mmp_block*VDEV_UBERBLOCK_SIZE(vd), 
-	    vd->vdev_mmp[MMP_LATER_READ] + mmp_block*VDEV_UBERBLOCK_SIZE(vd), 
+	    vd->vdev_mmp[MMP_INIT_READ]  + VDEV_MMP_OFFSET(vd,mmp_block), 
+	    vd->vdev_mmp[MMP_LATER_READ] + VDEV_MMP_OFFSET(vd,mmp_block), 
 	    VDEV_UBERBLOCK_SIZE(vd)) != 0)
-		return (vd->vdev_mmp[MMP_LATER_READ] +
-			mmp_block*VDEV_UBERBLOCK_SIZE(vd));
+		return ( vd->vdev_mmp[MMP_LATER_READ] +
+			 VDEV_MMP_OFFSET(vd,mmp_block));
 
 	return NULL;
 }
@@ -1685,9 +1696,10 @@ vdev_mmpblock_overwrite_single(zio_t *zio, vdev_t *vd, int flags,
 			uberblock_t *ubbuf, int mmp_block)
 {
 	uberblock_t *zbuf;
-	int l = mmp_block / MMP_BLOCKS_PER_LABEL;
-	int n = mmp_block % MMP_BLOCKS_PER_LABEL;
-	int mmp_block_index;
+	int l,n;
+
+	l = MMP_INDEX_TO_LABEL(mmp_block);
+	n = MMP_INDEX_TO_MMP_SLOT(mmp_block);
 
 	ASSERT(zio);
 	ASSERT(vd);
@@ -1708,9 +1720,8 @@ vdev_mmpblock_overwrite_single(zio_t *zio, vdev_t *vd, int flags,
 	if (ubbuf)
 		bcopy(ubbuf, zbuf, sizeof(uberblock_t));
 
-	mmp_block_index = VDEV_FIRST_MMP_BLOCK(vd) + n;
 	vdev_label_write(zio, vd, l, zbuf,
-	    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
+	    VDEV_UBERBLOCK_OFFSET(vd, MMP_SLOT_TO_UBERBLOCK_SLOT(vd, n)),
 	    VDEV_UBERBLOCK_SIZE(vd), NULL, zio->io_private,
 	    flags | ZIO_FLAG_DONT_PROPAGATE);
 
@@ -1729,7 +1740,7 @@ vdev_mmpblock_overwrite(zio_t *zio, vdev_t *vd, int flags,
 			uberblock_t *ubbuf)
 {
 	uberblock_t *zbuf;
-	int c, l, mmp_block_index;
+	int c, l, m;
 
 	ASSERT(zio);
 	ASSERT(vd);
@@ -1756,11 +1767,9 @@ vdev_mmpblock_overwrite(zio_t *zio, vdev_t *vd, int flags,
 	}
 
 	for (l = 0; l < VDEV_LABELS; l++) {
-		int m;
 		for (m = 0; m < MMP_BLOCKS_PER_LABEL; m++) {
-			mmp_block_index = VDEV_FIRST_MMP_BLOCK(vd) + m;
 			vdev_label_write(zio, vd, l, zbuf,
-			    VDEV_UBERBLOCK_OFFSET(vd, mmp_block_index),
+			    VDEV_UBERBLOCK_OFFSET(vd, MMP_SLOT_TO_UBERBLOCK_SLOT(vd,m)),
 			    VDEV_UBERBLOCK_SIZE(vd), NULL, NULL,
 			    flags | ZIO_FLAG_DONT_PROPAGATE);
 		}
@@ -1893,7 +1902,7 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 	 * prior to taking the lock, ie guess/allocate/lock/unlock/repeat if too small?
 	 * permutation_size is total # of mmp blocks.
 	 */
-	permutation_size = leaf_vdev_array->leaf_count * VDEV_LABELS * MMP_BLOCKS_PER_LABEL;
+	permutation_size = leaf_vdev_array->leaf_count * MMP_BLOCKS_PER_VDEV;
 	permutation = kmem_alloc(permutation_size*sizeof(uint64_t), KM_SLEEP);
 	create_random_permutation(permutation_size, permutation);
 
@@ -1901,8 +1910,8 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 	for (i=0; i<permutation_size; i++) {
 
 		mmp_block_index = permutation[i];
-		vdev_index = mmp_block_index / (VDEV_LABELS * MMP_BLOCKS_PER_LABEL);
-		mmp_block_index_in_vdev = mmp_block_index % (VDEV_LABELS * MMP_BLOCKS_PER_LABEL);
+		vdev_index = mmp_block_index / MMP_BLOCKS_PER_VDEV;
+		mmp_block_index_in_vdev = mmp_block_index % MMP_BLOCKS_PER_VDEV;
 
 		if ((blk = vdev_mmpblock_foreign_id_check(leaf_vdev_array->leaf[vdev_index], flags,
 					       mmp_block_index_in_vdev))) {
