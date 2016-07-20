@@ -1643,6 +1643,7 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 {
 	int error;
 	spa_t *spa = rvd->vdev_spa;
+	vdev_t *vd;
 
 	ASSERT(rvd);
 	ASSERT(!(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL));
@@ -1651,7 +1652,8 @@ vdev_mmpblock_foreign_id(vdev_t *rvd)
 	if (error)
 		return (SET_ERROR(error));
 
-	olabug("XXX MISSING COMPARISON IN vdev_mmpblock_foreign_id");
+	if ((vd=vdev_mmpblocks_changed(rvd)))
+		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 
 	return 0;
 }
