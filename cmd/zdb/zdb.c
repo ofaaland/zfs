@@ -2205,7 +2205,7 @@ dump_cachefile(const char *cachefile)
 	nvlist_free(config);
 }
 
-#define	ZDB_MAX_UB_HEADER_SIZE 32
+#define	ZDB_MAX_UB_HEADER_SIZE 256
 
 static void
 dump_label_uberblocks(vdev_label_t *lbl, uint64_t ashift)
@@ -2238,7 +2238,7 @@ dump_label_uberblocks(vdev_label_t *lbl, uint64_t ashift)
 		if (uberblock_verify(ub) != 0)
 			continue;
 		(void) snprintf(header, ZDB_MAX_UB_HEADER_SIZE,
-		    "MMP block[%d]\n", i);
+		    "MMP block[%d]\n\tuberblock_offset = %llu\n", i, (unsigned long long) uoff);
 		dump_mmpblock(ub, header, "");
 	}
 }
