@@ -5,7 +5,7 @@ utility functions:
 spa_load_impl()
 	spa_mmp_init_open_id(mmp_phys_t *mmp)
 	spa_mmp_takeover(spa_t *spa)
-		vdev_mmpblock_foreign_id(vdev_t *rvd)
+		vdev_mmpblocks_clean(vdev_t *rvd)
 			vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 			vdev_mmpblocks_are_dirty(vdev_t *vd, int pass)
 				vdev_is_mmpblock_dirty(uberblock_t *ub)
