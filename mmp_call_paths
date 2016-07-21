@@ -18,7 +18,7 @@ spa_load_impl()
 			mmp_ubbuf_setup(vdev_t *rvd, uberblock_t *ubbuf)
 			add_leaf_to_array(vdev_t *rvd, struct leaf_vdev_array *leaves)
 			create_random_permutation(int count, uint64_t *target)
-			vdev_mmpblock_foreign_id_check(vdev_t *vd, int flags, int mmp_block)
+			vdev_mmpblock_changed(vdev_t *vd, int flags, int mmp_block)
 			vdev_mmpblock_overwrite_single(zio_t *zio, vdev_t *vd, int flags,
 spa_create()
 	vdev_mmpblock_store_open_id(vdev_t *rvd)
