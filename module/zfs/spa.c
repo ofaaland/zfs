@@ -6831,9 +6831,9 @@ spa_mmp_takeover(spa_t *spa)
 	int rc;
 
 	/*
-	 * 1. Check for foreign IDs.
-	 * 2. If we find some, wait for a while to see if MMP blocks are being
-	 * updated, and quit if so.
+	 * 1. Check whether pool is clean.
+	 * 2. If not, wait for a while to see if MMP blocks are being updated,
+	 * and quit if so.
 	 * 3. Overwrite the MMP blocks serially, in a random order, reading first
 	 * in a compare-and-swap manner.  If one is found that is not clean,
 	 * return 0; otherwise return EBUSY.
