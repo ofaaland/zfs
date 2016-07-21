@@ -30,8 +30,8 @@ spa_add()
 
 spa_sync()
 	spa_mmp_detect_foreign_import(spa_t *spa)
-		vdev_mmpblock_foreign_id(vdev_t *rvd)
-			see spa_mmp_takeover -> vdev_mmpblock_foreign_id for rest of flow
+		vdev_mmpblock_changed_on_disk(vdev_t *rvd)
+			see spa_mmp_takeover -> vdev_mmpblock_changed_on_disk for rest of flow
 	spa_mmp_seq_bump(spa_t *spa)
 
 vdev_config_sync()
@@ -42,7 +42,3 @@ spa_unload()
 
 zdb
 	dump_mmpblock(uberblock_t *ub, const char *header, const char *footer)
-
-
-XXX BUG: vdev_mmpblock_foreign_id() is actually checking whether block is dirty.  This
-	 needs a separate function.
