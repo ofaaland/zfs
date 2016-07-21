@@ -1727,9 +1727,10 @@ vdev_mmpblock_overwrite_single(zio_t *zio, vdev_t *vd, int flags,
 	    VDEV_UBERBLOCK_SIZE(vd), NULL, zio->io_private,
 	    flags | ZIO_FLAG_DONT_PROPAGATE);
 
-	zio_buf_free(zbuf, VDEV_UBERBLOCK_SIZE(vd));
+	memcpy(vd->vdev_mmp[MMP_INIT_READ] + VDEV_MMP_OFFSET(vd, mmp_block),
+	    zbuf, VDEV_UBERBLOCK_SIZE(vd));
 
-	//olabug("vdev_mmpblock_overwrite_single() wrote mmp_block %d\n", mmp_block);
+	zio_buf_free(zbuf, VDEV_UBERBLOCK_SIZE(vd));
 }
 
 /*
