@@ -11,8 +11,9 @@ spa_load_impl()
 				vdev_is_mmpblock_dirty(uberblock_t *ub)
 
 		vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
-			vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
-			vdev_mmpblocks_changed(vdev_t *vd)
+			vdev_mmpblock_changed_on_disk(vdev_t *rvd)
+				vdev_read_all_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
+				vdev_mmpblocks_changed(vdev_t *vd)
 
 		vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 			mmp_ubbuf_setup(vdev_t *rvd, uberblock_t *ubbuf)
@@ -36,6 +37,8 @@ spa_sync()
 
 vdev_config_sync()
 	uberblock_mmp_update(uberblock_t *ub, const mmp_phys_t *mmp, mmp_op_t op)
+	vdev_uberblock_sync_list(svd, svdcount, ub, flags)	(existing function)
+		vdev_uberblock_sync(zio, ub, svd[v], flags)
 
 spa_unload()
 	vdev_mmpblock_clear_all(vdev_t *rvd)
