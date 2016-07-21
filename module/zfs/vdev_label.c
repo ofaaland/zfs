@@ -1435,9 +1435,9 @@ vdev_mmpblocks_are_dirty(vdev_t *vd, int pass)
 
 /*
  * Given a top level vdev, walk the tree until the leaf vdevs are found.  For
- * each leaf, check whether the MMP blocks in vd->vdev_mmp[0] are different
- * than those in vd->vdev_mmp[1].  Return NULL if there is no difference.
- * Return a pointer to the vdev if there is a difference.
+ * each leaf, check whether the MMP blocks in vd->vdev_mmp[MMP_INIT_READ] are
+ * different than those in vd->vdev_mmp[MMP_LATER_READ].  Return NULL if there
+ * is no difference.  Return a pointer to the vdev if there is a difference.
  */
 
 static vdev_t *
@@ -1456,11 +1456,11 @@ vdev_mmpblocks_changed(vdev_t *vd)
 	if (!vd->vdev_ops->vdev_op_leaf)
 		return (NULL);
 
-	if (!vd->vdev_mmp[0] || !vd->vdev_mmp[1])
+	if (!vd->vdev_mmp[MMP_INIT_READ] || !vd->vdev_mmp[MMP_LATER_READ])
 		return (NULL);
 
 	size = MMP_BLOCKS_PER_VDEV*VDEV_UBERBLOCK_SIZE(vd);
-	if (memcmp(vd->vdev_mmp[0], vd->vdev_mmp[1], size) != 0)
+	if (memcmp(vd->vdev_mmp[MMP_INIT_READ], vd->vdev_mmp[MMP_LATER_READ], size) != 0)
 		return (vd);
 
 	return (NULL);
@@ -1686,7 +1686,7 @@ vdev_mmpblocks_clean(vdev_t *rvd)
 	if (error)
 		return (SET_ERROR(error));
 
-	if ((ub=vdev_mmpblocks_are_dirty(rvd, 0)) != NULL) {
+	if ((ub=vdev_mmpblocks_are_dirty(rvd, MMP_INIT_READ)) != NULL) {
 		return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 	}
 
