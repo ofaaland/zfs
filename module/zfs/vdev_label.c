@@ -1775,6 +1775,9 @@ vdev_mmpblock_overwrite(zio_t *zio, vdev_t *vd, int flags,
 			    VDEV_UBERBLOCK_OFFSET(vd, MMP_SLOT_TO_UBERBLOCK_SLOT(vd,m)),
 			    VDEV_UBERBLOCK_SIZE(vd), NULL, NULL,
 			    flags | ZIO_FLAG_DONT_PROPAGATE);
+			memcpy(vd->vdev_mmp[MMP_INIT_READ] + VDEV_MMP_OFFSET(vd,
+			    MMP_LABEL_SLOT_TO_MMP_INDEX(l,m)), zbuf,
+			    VDEV_UBERBLOCK_SIZE(vd));
 		}
 	}
 
