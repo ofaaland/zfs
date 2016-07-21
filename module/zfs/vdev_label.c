@@ -1578,7 +1578,7 @@ vdev_read_all_mmpblocks(vdev_t *rvd, int pass)
 }
 
 static uberblock_t *
-vdev_mmpblock_foreign_id_check(vdev_t *vd, int flags, int mmp_block)
+vdev_mmpblock_changed(vdev_t *vd, int flags, int mmp_block)
 {
 	int l,n;
 	zio_t *zio;
@@ -1916,7 +1916,7 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 		vdev_index = mmp_block_index / MMP_BLOCKS_PER_VDEV;
 		mmp_block_index_in_vdev = mmp_block_index % MMP_BLOCKS_PER_VDEV;
 
-		if ((blk = vdev_mmpblock_foreign_id_check(leaf_vdev_array->leaf[vdev_index], flags,
+		if ((blk = vdev_mmpblock_changed(leaf_vdev_array->leaf[vdev_index], flags,
 					       mmp_block_index_in_vdev))) {
 			vdev_mmp_foreign_id_warning(
 				(long long unsigned int) spa->spa_mmp.mmp_open_id,
