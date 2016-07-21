@@ -6856,7 +6856,7 @@ spa_mmp_takeover(spa_t *spa)
 int
 spa_mmp_detect_foreign_import(spa_t *spa)
 {
-	return (vdev_mmpblock_foreign_id(spa->spa_root_vdev));
+	return (vdev_mmpblock_changed_on_disk(spa->spa_root_vdev));
 }
 
 #if defined(_KERNEL) && defined(HAVE_SPL)

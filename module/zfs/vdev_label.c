@@ -1653,7 +1653,7 @@ vdev_mmp_foreign_id_warning(
 }
 
 int
-vdev_mmpblock_foreign_id(vdev_t *rvd)
+vdev_mmpblock_changed_on_disk(vdev_t *rvd)
 {
 	int error;
 	spa_t *spa = rvd->vdev_spa;
@@ -1977,7 +1977,6 @@ vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 	int waited = 0;
 	int error;
 	spa_t *spa;
-	vdev_t *vd;
 
 	ASSERT(top_level_vdev);
 	ASSERT(top_level_vdev->vdev_spa);
@@ -1995,13 +1994,9 @@ vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 		waited++;
 		mutex_enter(&spa_namespace_lock);
 
-		error = vdev_read_all_mmpblocks(top_level_vdev, MMP_LATER_READ);
-
+		error = vdev_mmpblock_changed_on_disk(top_level_vdev);
 		if (error)
 			return (SET_ERROR(error));
-
-		if ((vd=vdev_mmpblocks_changed(top_level_vdev)))
-			return (SET_ERROR(EBUSY)); /* XXX choose a good error */
 	}
 
 	return 0;
