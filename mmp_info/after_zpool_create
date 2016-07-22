@@ -1,19 +1,7 @@
-[164380.029622] ZFS: Loaded module v0.6.5-251_gc63527f (DEBUG mode), ZFS pool version 5000, ZFS filesystem version 5
-[164454.868400] spa_add
-[164454.877206] SPL: using hostid 0x00000000
-[164454.884735] spa_sync (writeable)
-[164454.886281] vdev_config_sync
-[164454.910431] spa_create
-[164454.915013] SELinux: initialized (dev zfs, type zfs), uses xattr
-[164459.885387] spa_sync (writeable)
-[164459.887857] vdev_config_sync
-[164464.885824] spa_sync (writeable)
-[164469.886659] spa_sync (writeable)
-[164474.890809] spa_sync (writeable)
-[164479.890915] spa_sync (writeable)
-[164484.891050] spa_sync (writeable)
-[164489.893316] spa_sync (writeable)
-[164494.892686] spa_sync (writeable)
-[164499.893021] spa_sync (writeable)
-[164504.893374] spa_sync (writeable)
-[164509.893879] spa_sync (writeable)
+spa_add
+spa_sync (writeable)
+vdev_config_sync
+spa_create
+spa_sync (writeable)
+vdev_config_sync
+spa_sync (writeable)	X times

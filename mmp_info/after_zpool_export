@@ -1,11 +1,6 @@
-[164514.893983] spa_sync (writeable)
-[164519.893501] spa_sync (writeable)
-[164524.893599] spa_sync (writeable)
-[164528.120427] spa_sync (writeable)
-[164528.121228] vdev_config_sync
-[164528.126383] spa_sync (writeable)
-[164528.127334] spa_sync (writeable)
-[164528.128245] spa_sync (writeable)
-[164528.130085] vdev_config_sync
-[164528.138084] spa_sync (writeable)
-[164528.138929] spa_sync (writeable)
+spa_sync (writeable)	X times
+vdev_config_sync
+spa_sync (writeable)	X times
+vdev_config_sync
+spa_sync (writeable)
+spa_sync (writeable)
