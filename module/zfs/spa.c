@@ -2802,11 +2802,14 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 	}
 
 	if (spa_writeable(spa)) {
+		olabug("spa_load_impl (writeable)\n");
 		spa_mmp_init_open_id(&spa->spa_mmp);
 		if ((error = spa_mmp_takeover(spa))) {
 			olabug("spa_mmp_takeover returned %d\n", error);
 			return (SET_ERROR(error));
 		}
+	} else {
+		olabug("spa_load_impl (readonly)\n");
 	}
 
 	if (spa_writeable(spa) && (state == SPA_LOAD_RECOVER ||
@@ -3855,6 +3858,7 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 
 	spa_history_log_version(spa, "create");
 
+	olabug("spa_create\n");
 	/* Write out all MMP blocks with our import ID. */
 	spa_mmp_init_open_id(&spa->spa_mmp);
 	vdev_mmpblock_store_open_id(spa->spa_root_vdev);
@@ -6404,6 +6408,7 @@ spa_sync(spa_t *spa, uint64_t txg)
 
 	VERIFY(spa_writeable(spa));
 
+	olabug("spa_sync (writeable)\n");
 	/*
 	 * At first sync after a create, MMP blocks have not been written yet.
 	 * Skipping the test is safe because there is no data to protect.
