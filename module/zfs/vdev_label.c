@@ -1434,6 +1434,43 @@ vdev_mmpblocks_are_dirty(vdev_t *vd, int pass)
 	return NULL;
 }
 
+#define BIGDUMP(fmt, type, name)					\
+if (mmp[MMP_INIT_READ]->name != mmp[MMP_LATER_READ]->name)		\
+olabug("%20s   %5d  %4d  %16" fmt "	%16" fmt "\n", #name, l, n,	\
+(type) mmp[MMP_INIT_READ]->name,					\
+(type) mmp[MMP_LATER_READ]->name)
+
+/*
+ * Given a leaf vdev, walk the vdev_mmp arrays and report differences
+ * between the MMP blocks at the same index.
+ */
+static void
+vdev_mmp_report_differences(vdev_t *vd)
+{
+	int l,n,pass;
+	uberblock_t	*ub;
+	mmp_phys_t	*mmp[VDEV_MMP_ARRAYS];
+
+	olabug("desc               label  slot  %16s	%16s\n", "MMP_INIT_READ", "MMP_LATER_READ"); 
+	for (l = 0; l < VDEV_LABELS; l++) {
+		for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
+			for (pass=0; pass<VDEV_MMP_ARRAYS; pass++) {
+				ub = vd->vdev_mmp[pass] +
+				     VDEV_MMP_OFFSET(vd, MMP_LABEL_SLOT_TO_MMP_INDEX(l,n));
+				mmp[pass] = &ub->ub_mmp;
+			}
+			BIGDUMP("llx", long long unsigned, mmp_magic);
+			BIGDUMP("llx", long long unsigned, mmp_pool_guid);
+			BIGDUMP("llx", long long unsigned, mmp_open_id);
+			BIGDUMP("llx", long long unsigned, mmp_seq);
+			BIGDUMP("llx", long unsigned, mmp_interval);
+			BIGDUMP("llx", long unsigned, mmp_delay);
+			BIGDUMP("llx", long unsigned, mmp_op);
+			BIGDUMP("llx", long long unsigned, mmp_first_txg);
+		}
+	}
+}
+
 /*
  * Given a top level vdev, walk the tree until the leaf vdevs are found.  For
  * each leaf, check whether the MMP blocks in vd->vdev_mmp[MMP_INIT_READ] are
@@ -1461,8 +1498,10 @@ vdev_mmpblocks_changed(vdev_t *vd)
 		return (NULL);
 
 	size = MMP_BLOCKS_PER_VDEV*VDEV_UBERBLOCK_SIZE(vd);
-	if (memcmp(vd->vdev_mmp[MMP_INIT_READ], vd->vdev_mmp[MMP_LATER_READ], size) != 0)
+	if (memcmp(vd->vdev_mmp[MMP_INIT_READ], vd->vdev_mmp[MMP_LATER_READ], size) != 0) {
+		vdev_mmp_report_differences(vd);
 		return (vd);
+		}
 
 	return (NULL);
 }

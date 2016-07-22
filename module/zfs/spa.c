@@ -6414,9 +6414,9 @@ spa_sync(spa_t *spa, uint64_t txg)
 	 * Skipping the test is safe because there is no data to protect.
 	 */
 	if (spa_syncing_txg(spa) > 0)
-		if (spa_mmp_detect_foreign_import(spa) != 0)
-			olabug("MMP fault detected syncing txg %u\n",
-			       (long long unsigned) spa_syncing_txg(spa));
+		if ((error = spa_mmp_detect_foreign_import(spa)) != 0)
+			olabug("MMP fault detected syncing txg %u error %d\n",
+			       (long long unsigned) spa_syncing_txg(spa), error);
 
 	/*
 	 * Check for another active import.
