@@ -1,21 +1,6 @@
-spa_sync (writeable)	X times
-vdev_config_sync
-spa_sync (writeable)	X times
-vdev_config_sync
-spa_sync (writeable)	X times
-spa_add
-spa_load_impl (readonly)
 spa_add
 spa_load_impl (readonly)
 spa_add
 spa_load_impl (writeable)
 spa_sync (writeable)
-spa_sync (writeable)
 vdev_config_sync
-spa_sync (writeable)
-spa_sync (writeable)
-vdev_config_sync
-spa_sync (writeable)
-spa_sync (writeable)
-vdev_config_sync
-spa_sync (writeable)

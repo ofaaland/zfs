@@ -4,4 +4,3 @@ vdev_config_sync
 spa_create
 spa_sync (writeable)
 vdev_config_sync
-spa_sync (writeable)	X times
