@@ -1,0 +1,36 @@
+[164474.890809] spa_sync (writeable)
+[164479.890915] spa_sync (writeable)
+[164484.891050] spa_sync (writeable)
+[164489.893316] spa_sync (writeable)
+[164494.892686] spa_sync (writeable)
+[164499.893021] spa_sync (writeable)
+[164504.893374] spa_sync (writeable)
+[164509.893879] spa_sync (writeable)
+[164514.893983] spa_sync (writeable)
+[164519.893501] spa_sync (writeable)
+[164524.893599] spa_sync (writeable)
+[164528.120427] spa_sync (writeable)
+[164528.121228] vdev_config_sync
+[164528.126383] spa_sync (writeable)
+[164528.127334] spa_sync (writeable)
+[164528.128245] spa_sync (writeable)
+[164528.130085] vdev_config_sync
+[164528.138084] spa_sync (writeable)
+[164528.138929] spa_sync (writeable)
+[164549.031495] spa_add
+[164549.048695] spa_load_impl (readonly)
+[164549.051391] spa_add
+[164549.070149] spa_load_impl (readonly)
+[164549.071320] spa_add
+[164549.085498] spa_load_impl (writeable)
+[164559.102031] spa_sync (writeable)
+[164559.102167] spa_sync (writeable)
+[164559.105181] vdev_config_sync
+[164559.127301] spa_sync (writeable)
+[164559.130090] spa_sync (writeable)
+[164559.133042] vdev_config_sync
+[164559.164791] spa_sync (writeable)
+[164559.174622] SELinux: initialized (dev zfs, type zfs), uses xattr
+[164564.168277] spa_sync (writeable)
+[164564.171629] vdev_config_sync
+[164569.167518] spa_sync (writeable)
