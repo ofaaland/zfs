@@ -22,6 +22,7 @@ spa_load_impl()
 			vdev_mmpblock_changed(vdev_t *vd, int flags, int mmp_block)
 			vdev_mmpblock_overwrite_single(zio_t *zio, vdev_t *vd, int flags,
 spa_create()
+	spa_mmp_init_open_id(mmp_phys_t *mmp)
 	vdev_mmpblock_store_open_id(vdev_t *rvd)
 		mmp_ubbuf_setup(vdev_t *rvd, uberblock_t *ubbuf)
 		vdev_mmpblock_overwrite(zio_t *zio, vdev_t *vd, int flags,
@@ -45,3 +46,17 @@ spa_unload()
 
 zdb
 	dump_mmpblock(uberblock_t *ub, const char *header, const char *footer)
+
+
+
+
+module/zfs/spa.c
+  spa_mmp_init			sets mmp_magic, interval, nodename
+  spa_mmp_init_open_id		sets mmp_open_id
+
+module/zfs/uberblock.c
+  uberblock_mmp_update		copies an mmp into the uberblock and sets op; memcpy part is odd
+
+module/zfs/vdev_label.c
+  mmp_ubbuf_setup		makes otherwise empty uberblock with partially configured mmp block
+
