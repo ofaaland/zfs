@@ -2026,6 +2026,8 @@ vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 		);
 	/* XXX need to assert spa_namespace_lock is held */
 
+	olabug("vdev_mmp_watch_for_activity() using local variable for wait time, not spa.spa_mmp.*\n");
+
 	spa = top_level_vdev->vdev_spa;
 
 	while (waited < mmp_wait_secs) {
