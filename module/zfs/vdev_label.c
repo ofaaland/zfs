@@ -1344,10 +1344,10 @@ mmp_ubbuf_setup(vdev_t *rvd, uberblock_t *ubbuf)
 	ASSERT(rvd->vdev_spa);
 
 	bzero(ubbuf, sizeof(uberblock_t));
-	ubbuf->ub_mmp.mmp_magic = MMP_MAGIC;
-	ubbuf->ub_mmp.mmp_open_id = rvd->vdev_spa->spa_mmp.mmp_open_id;
-	ubbuf->ub_mmp.mmp_op = MO_IMPORT_ATTEMPT;
 	ubbuf->ub_magic = UBERBLOCK_MAGIC;
+
+	ubbuf->ub_mmp = rvd->vdev_spa->spa_mmp;
+	ubbuf->ub_mmp.mmp_op = MO_IMPORT_ATTEMPT;
 }
 
 /*
