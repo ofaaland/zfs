@@ -1021,7 +1021,7 @@ static void
 vdev_uberblock_sync(zio_t *zio, uberblock_t *ub, vdev_t *vd, int flags)
 {
 	uberblock_t *ubbuf;
-	int c, l, n, mmp_block_index;
+	int c, l, n, mmp_slot;
 
 	for (c = 0; c < vd->vdev_children; c++)
 		vdev_uberblock_sync(zio, ub, vd->vdev_child[c], flags);
@@ -1050,15 +1050,15 @@ vdev_uberblock_sync(zio_t *zio, uberblock_t *ub, vdev_t *vd, int flags)
 		 * Just checking for ACTIVE has worked so far in brief testing.
 		 */
 		if (vd->vdev_spa->spa_state == POOL_STATE_ACTIVE) {
-			mmp_block_index = spa_get_random(MMP_BLOCKS_PER_LABEL);
+			mmp_slot = spa_get_random(MMP_BLOCKS_PER_LABEL);
 			vdev_label_write(zio, vd, l, ubbuf,
 			    VDEV_UBERBLOCK_OFFSET(vd, 
-				MMP_SLOT_TO_UBERBLOCK_SLOT(vd, mmp_block_index)),
+				MMP_SLOT_TO_UBERBLOCK_SLOT(vd, mmp_slot)),
 			    VDEV_UBERBLOCK_SIZE(vd), vdev_uberblock_sync_done,
 			    zio->io_private, flags | ZIO_FLAG_DONT_PROPAGATE);
 			memcpy(vd->vdev_mmp[MMP_INIT_READ] +
-			    VDEV_MMP_OFFSET(vd,mmp_block_index), ubbuf,
-			    VDEV_UBERBLOCK_SIZE(vd));
+			    VDEV_MMP_OFFSET(vd, MMP_LABEL_SLOT_TO_MMP_INDEX(l,mmp_slot)),
+			    ubbuf, VDEV_UBERBLOCK_SIZE(vd));
 		}
 	}
 
