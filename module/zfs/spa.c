@@ -2136,7 +2136,10 @@ spa_mmp_init(mmp_phys_t *mmp)
 	memset(mmp, 0, sizeof(*mmp));
 
 	mmp->mmp_magic = MMP_MAGIC;
-	mmp->mmp_interval = 5000;
+	/*
+	 * XXX where should default mmp_interval be recorded?  Probably not here.
+	 */
+	mmp->mmp_interval = 5*HZ;
 	strncpy(mmp->mmp_nodename, utsname()->nodename,
 	    sizeof(mmp->mmp_nodename));
 }

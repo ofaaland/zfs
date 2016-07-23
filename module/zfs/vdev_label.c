@@ -2013,7 +2013,7 @@ release_config_lock:
 int
 vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 {
-	int mmp_wait_secs = 10;
+	int mmp_wait_secs;
 	int waited = 0;
 	int error;
 	spa_t *spa;
@@ -2026,12 +2026,18 @@ vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 		);
 	/* XXX need to assert spa_namespace_lock is held */
 
-	olabug("vdev_mmp_watch_for_activity() using local variable for wait time, not spa.spa_mmp.*\n");
-
+	/*
+	 * XXX wait interval used here should come from the mmp blocks we read
+	 * from disk.  pool is not clean, therefore it may be currently
+	 * imported elsewhere, therefore the numbers on disk reflect that other
+	 * nodes update frequency.
+	 */
 	spa = top_level_vdev->vdev_spa;
+	mmp_wait_secs = 2*(spa->spa_mmp.mmp_interval/HZ);
 
 	while (waited < mmp_wait_secs) {
 		mutex_exit(&spa_namespace_lock);
+		/* XXX where should polling frequency be set? */
 		delay(HZ);
 		waited++;
 		mutex_enter(&spa_namespace_lock);
