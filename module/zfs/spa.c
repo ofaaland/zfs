@@ -2138,10 +2138,6 @@ spa_mmp_init(mmp_phys_t *mmp)
 	mmp->mmp_magic = MMP_MAGIC;
 	mmp->mmp_interval = 5000;
 	mmp->mmp_first_txg = 50;
-	/*
-	 * Seems to me like utsname()->nodename might become invalid before strncpy
-	 * begins its work, but I see no _get() or equivalent to prevent that.
-	 */
 	strncpy(mmp->mmp_nodename, utsname()->nodename,
 	    sizeof(mmp->mmp_nodename));
 }
