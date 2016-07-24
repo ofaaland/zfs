@@ -1521,7 +1521,7 @@ vdev_mmpblocks_changed(vdev_t *vd)
 {
 	vdev_t *rc;
 	int c;
-	int size;
+	int index;
 
 	ASSERT(vd);
 
@@ -1535,11 +1535,14 @@ vdev_mmpblocks_changed(vdev_t *vd)
 	if (!vd->vdev_mmp[MMP_INIT_READ] || !vd->vdev_mmp[MMP_LATER_READ])
 		return (NULL);
 
-	size = MMP_BLOCKS_PER_VDEV*VDEV_UBERBLOCK_SIZE(vd);
-	if (memcmp(vd->vdev_mmp[MMP_INIT_READ], vd->vdev_mmp[MMP_LATER_READ], size) != 0) {
-		vdev_mmp_report_differences(vd);
-		return (vd);
-		}
+	for (index=0; index<MMP_BLOCKS_PER_VDEV; index++)
+		if (memcmp(
+		    vd->vdev_mmp[MMP_INIT_READ]+VDEV_MMP_OFFSET(vd, index),
+		    vd->vdev_mmp[MMP_LATER_READ]+VDEV_MMP_OFFSET(vd, index),
+		    VDEV_UBERBLOCK_SIZE(vd) - sizeof(zio_eck_t)) != 0) {
+			vdev_mmp_report_differences(vd);
+			return (vd);
+			}
 
 	return (NULL);
 }
