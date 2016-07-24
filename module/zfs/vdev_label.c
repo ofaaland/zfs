@@ -1463,7 +1463,8 @@ vdev_mmp_report_differences(vdev_t *vd)
 	mmp_phys_t	*mmp[VDEV_MMP_ARRAYS];
 	int		ubdiff, mmpdiff, taildiff;
 
-	olabug("desc               label  slot  %16s	%16s\n", "MMP_INIT_READ", "MMP_LATER_READ"); 
+	olabug("MMP fault detected.  Differences found:\n");
+	olabug("      desc               label  slot  %16s	%16s\n", "MMP_INIT_READ", "MMP_LATER_READ"); 
 	for (l = 0; l < VDEV_LABELS; l++) {
 		for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
 			for (pass=0; pass<VDEV_MMP_ARRAYS; pass++) {
