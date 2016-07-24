@@ -1434,11 +1434,23 @@ vdev_mmpblocks_are_dirty(vdev_t *vd, int pass)
 	return NULL;
 }
 
+#define SMALLDUMP(fmt, type, name, value1, value2)				\
+if (value1 != value2)							\
+olabug("%20s   %5d  %4d  %16" fmt "	%16" fmt "\n", #name, l, n,	\
+(type) value1,								\
+(type) value2)
+
 #define BIGDUMP(fmt, type, name)					\
 if (mmp[MMP_INIT_READ]->name != mmp[MMP_LATER_READ]->name)		\
 olabug("%20s   %5d  %4d  %16" fmt "	%16" fmt "\n", #name, l, n,	\
 (type) mmp[MMP_INIT_READ]->name,					\
 (type) mmp[MMP_LATER_READ]->name)
+
+#define UBDUMP(fmt, type, name)					\
+if (ub[MMP_INIT_READ]->name != ub[MMP_LATER_READ]->name)		\
+olabug("%20s   %5d  %4d  %16" fmt "	%16" fmt "\n", #name, l, n,	\
+(type) ub[MMP_INIT_READ]->name,					\
+(type) ub[MMP_LATER_READ]->name)
 
 /*
  * Given a leaf vdev, walk the vdev_mmp arrays and report differences
@@ -1448,23 +1460,35 @@ static void
 vdev_mmp_report_differences(vdev_t *vd)
 {
 	int l,n,pass;
-	uberblock_t	*ub;
+	uberblock_t	*ub[VDEV_MMP_ARRAYS];
 	mmp_phys_t	*mmp[VDEV_MMP_ARRAYS];
 
 	olabug("desc               label  slot  %16s	%16s\n", "MMP_INIT_READ", "MMP_LATER_READ"); 
 	for (l = 0; l < VDEV_LABELS; l++) {
 		for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
 			for (pass=0; pass<VDEV_MMP_ARRAYS; pass++) {
-				ub = vd->vdev_mmp[pass] +
+				ub[pass] = vd->vdev_mmp[pass] +
 				     VDEV_MMP_OFFSET(vd, MMP_LABEL_SLOT_TO_MMP_INDEX(l,n));
-				mmp[pass] = &ub->ub_mmp;
+				mmp[pass] = &ub[pass]->ub_mmp;
 			}
+			SMALLDUMP("llx", int, "memcmp(mmp0,mmp1)", memcmp(mmp[0],mmp[1],sizeof(mmp_phys_t)), 0);
+			SMALLDUMP("llx", int, "memcmp(ub0,ub1)", memcmp(ub[0],ub[1],VDEV_UBERBLOCK_SIZE(vd)), 0);
+			UBDUMP("llx", long long unsigned, ub_magic);
+			UBDUMP("llx", long long unsigned, ub_version);
+			UBDUMP("llx", long long unsigned, ub_txg);
+			UBDUMP("llx", long long unsigned, ub_guid_sum);
+			UBDUMP("llx", long long unsigned, ub_timestamp);
+			UBDUMP("llx", long long unsigned, ub_software_version);
 			BIGDUMP("llx", long long unsigned, mmp_magic);
 			BIGDUMP("llx", long long unsigned, mmp_pool_guid);
 			BIGDUMP("llx", long long unsigned, mmp_open_id);
 			BIGDUMP("llx", long long unsigned, mmp_seq);
 			BIGDUMP("llx", long unsigned, mmp_interval);
 			BIGDUMP("llx", long unsigned, mmp_delay);
+			if (strcmp(mmp[MMP_INIT_READ]->mmp_nodename,mmp[MMP_LATER_READ]->mmp_nodename) != 0) {
+				olabug("%20s   %5d  %4d  %16s	%16s\n", "mmp_nodename", l, n,
+				mmp[MMP_INIT_READ]->mmp_nodename, mmp[MMP_LATER_READ]->mmp_nodename);
+			}
 			BIGDUMP("llx", long unsigned, mmp_op);
 			BIGDUMP("llx", long long unsigned, mmp_first_txg);
 		}
@@ -1585,6 +1609,7 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 			    size,
 			    mmp_read_done, labelblock, io_flags);
 			error = zio_wait(zio);
+
 			if (error != 0 && error != ECKSUM)
 				olabug("vdev_read_mmpblocks: error %d label %d mmp block %d"
 					" size 0x%x L0 UB0 offset 0x%x offset 0x%x\n",
