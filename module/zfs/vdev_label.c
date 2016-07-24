@@ -1462,6 +1462,7 @@ vdev_mmp_report_differences(vdev_t *vd)
 	int l,n,pass;
 	uberblock_t	*ub[VDEV_MMP_ARRAYS];
 	mmp_phys_t	*mmp[VDEV_MMP_ARRAYS];
+	int		ubdiff, mmpdiff, taildiff, eckdiff;
 
 	olabug("desc               label  slot  %16s	%16s\n", "MMP_INIT_READ", "MMP_LATER_READ"); 
 	for (l = 0; l < VDEV_LABELS; l++) {
@@ -1471,8 +1472,21 @@ vdev_mmp_report_differences(vdev_t *vd)
 				     VDEV_MMP_OFFSET(vd, MMP_LABEL_SLOT_TO_MMP_INDEX(l,n));
 				mmp[pass] = &ub[pass]->ub_mmp;
 			}
-			SMALLDUMP("llx", int, "memcmp(mmp0,mmp1)", memcmp(mmp[0],mmp[1],sizeof(mmp_phys_t)), 0);
-			SMALLDUMP("llx", int, "memcmp(ub0,ub1)", memcmp(ub[0],ub[1],VDEV_UBERBLOCK_SIZE(vd)), 0);
+			ubdiff = memcmp(ub[0],ub[1],sizeof(uberblock_t) - sizeof(mmp_phys_t));
+			mmpdiff = memcmp(mmp[0],mmp[1],sizeof(mmp_phys_t));
+			taildiff = memcmp(
+				((void *) ub[0])+sizeof(uberblock_t),
+				((void *) ub[1])+sizeof(uberblock_t),
+				VDEV_UBERBLOCK_SIZE(vd) - sizeof(uberblock_t) - sizeof(zio_eck_t));
+			eckdiff = memcmp(
+				((void *) ub[0])+VDEV_UBERBLOCK_SIZE(vd) - sizeof(zio_eck_t),
+				((void *) ub[1])+VDEV_UBERBLOCK_SIZE(vd) - sizeof(zio_eck_t),
+				sizeof(zio_eck_t));
+
+			SMALLDUMP("x", int, "ubdiff", ubdiff, 0);
+			SMALLDUMP("x", int, "mmpdiff", mmpdiff, 0);
+			SMALLDUMP("x", int, "taildiff", taildiff, 0);
+			SMALLDUMP("x", int, "eckdiff", eckdiff, 0);
 			UBDUMP("llx", long long unsigned, ub_magic);
 			UBDUMP("llx", long long unsigned, ub_version);
 			UBDUMP("llx", long long unsigned, ub_txg);
