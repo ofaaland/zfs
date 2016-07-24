@@ -1273,7 +1273,6 @@ retry:
 
 	ASSERT(txg <= spa->spa_final_txg);
 
-	olabug("vdev_config_sync\n");
 	uberblock_mmp_update(ub, &spa->spa_mmp, MO_TXG_SYNC);
 
 	/*

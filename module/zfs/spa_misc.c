@@ -653,7 +653,6 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	spa->spa_max_ashift = 0;
 
 	spa_mmp_init(&spa->spa_mmp);
-	olabug("spa_add\n");
 
 	/*
 	 * As a pool is being created, treat all features as disabled by
