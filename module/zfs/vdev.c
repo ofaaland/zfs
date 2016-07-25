@@ -354,10 +354,12 @@ vdev_alloc_common(spa_t *spa, uint_t id, uint64_t guid, vdev_ops_t *ops)
 	 * XXX should we skip this for some alloctypes?
 	 */
 	for (i=0; i<VDEV_MMP_ARRAYS; i++) {
-		if (vd->vdev_ops->vdev_op_leaf)
+		if (vd->vdev_ops->vdev_op_leaf) {
 			vd->vdev_mmp[i] = zio_buf_alloc(VDEV_MMP_ARRAY_SIZE);
-		else
+			bzero(vd->vdev_mmp[i], VDEV_MMP_ARRAY_SIZE);
+		} else {
 			vd->vdev_mmp[i] = NULL;
+		}
 	}
 
 	list_link_init(&vd->vdev_config_dirty_node);
