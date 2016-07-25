@@ -1463,7 +1463,7 @@ vdev_mmp_report_differences(vdev_t *vd)
 	mmp_phys_t	*mmp[VDEV_MMP_ARRAYS];
 	int		ubdiff, mmpdiff, taildiff;
 
-	olabug("MMP fault detected.  Differences found:\n");
+	olabug("MMP fault detected in %s.  Differences found:\n", vd->vdev_path);
 	olabug("      desc               label  slot  %16s	%16s\n", "MMP_INIT_READ", "MMP_LATER_READ"); 
 	for (l = 0; l < VDEV_LABELS; l++) {
 		for (n = 0; n < MMP_BLOCKS_PER_LABEL; n++) {
@@ -1479,9 +1479,9 @@ vdev_mmp_report_differences(vdev_t *vd)
 				((void *) ub[1])+sizeof(uberblock_t),
 				VDEV_UBERBLOCK_SIZE(vd) - sizeof(uberblock_t) - sizeof(zio_eck_t));
 
-			SMALLDUMP("x", int, "ubdiff", ubdiff, 0);
-			SMALLDUMP("x", int, "mmpdiff", mmpdiff, 0);
-			SMALLDUMP("x", int, "taildiff", taildiff, 0);
+			SMALLDUMP("x", int, memcmp_uberblock, ubdiff, 0);
+			SMALLDUMP("x", int, memcmp_mmpblock, mmpdiff, 0);
+			SMALLDUMP("x", int, memcmp_ub_tail, taildiff, 0);
 			UBDUMP("llx", long long unsigned, ub_magic);
 			UBDUMP("llx", long long unsigned, ub_version);
 			UBDUMP("llx", long long unsigned, ub_txg);
