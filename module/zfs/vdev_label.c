@@ -2169,7 +2169,7 @@ vdev_mmp_takeover(vdev_t *rvd, int need_lock)
 	spa_t *spa;
 
 	ASSERT(rvd);
-	ASSERT(spa_config_held(rvd->vdev_spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
+	ASSERT(spa_config_held(rvd->vdev_spa, SCL_ALL, RW_WRITER) == SCL_ALL);
 
 	/*
 	 * 1. Check whether pool is clean.
@@ -2190,18 +2190,6 @@ vdev_mmp_takeover(vdev_t *rvd, int need_lock)
 	if (rc)
 		return (SET_ERROR(rc));
 
-	/* Is there a non-racy way to handle this?  Maybe require SCL_ALL at entry. */
-	olabug("vdev_mmp_takeover() locks held P: 0x%x\n", spa_config_held(rvd->vdev_spa, SCL_ALL, RW_WRITER));
-	spa_config_exit(spa, SCL_STATE_ALL, FTAG);
-	olabug("vdev_mmp_takeover() locks held Q: 0x%x\n", spa_config_held(rvd->vdev_spa, SCL_ALL, RW_WRITER));
-	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-	olabug("vdev_mmp_takeover() locks held R: 0x%x\n", spa_config_held(rvd->vdev_spa, SCL_ALL, RW_WRITER));
 	rc=vdev_mmp_block_permuted_write(rvd);
-	spa_config_exit(spa, SCL_ALL, FTAG);
-
-	olabug("vdev_mmp_takeover() locks held S: 0x%x\n", spa_config_held(rvd->vdev_spa, SCL_ALL, RW_WRITER));
-	spa_config_enter(spa, SCL_STATE_ALL, FTAG, RW_WRITER);
-	olabug("vdev_mmp_takeover() locks held T: 0x%x\n", spa_config_held(rvd->vdev_spa, SCL_ALL, RW_WRITER));
-
 	return (SET_ERROR(rc));
 }
