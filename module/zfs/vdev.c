@@ -2424,6 +2424,8 @@ vdev_degrade(spa_t *spa, uint64_t guid, vdev_aux_t aux)
 int
 vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 {
+	int rc;
+	int original_vdev_offline, original_vdev_tmpoffline;
 	vdev_t *vd, *tvd, *pvd, *rvd = spa->spa_root_vdev;
 
 	spa_vdev_state_enter(spa, SCL_NONE);
@@ -2433,6 +2435,9 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 
 	if (!vd->vdev_ops->vdev_op_leaf)
 		return (spa_vdev_state_exit(spa, NULL, ENOTSUP));
+
+	original_vdev_offline = vd->vdev_offline;
+	original_vdev_tmpoffline = vd->vdev_tmpoffline;
 
 	tvd = vd->vdev_top;
 	vd->vdev_offline = B_FALSE;
@@ -2447,6 +2452,19 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 	}
 
 	vdev_reopen(tvd);
+
+	if ((rc = vdev_mmp_takeover(vd, 0)) != 0) {
+		vd->vdev_offline = original_vdev_offline;
+		vd->vdev_tmpoffline = original_vdev_tmpoffline;
+		vdev_reopen(tvd);
+		/*
+		 * XXX Need to do the right thing WRT checkremove and
+		 * forcefault, but whatever that is.
+		 */
+		return (spa_vdev_state_exit(spa, NULL, rc));
+	}
+
+
 	vd->vdev_checkremove = vd->vdev_forcefault = B_FALSE;
 
 	if (!vd->vdev_aux) {

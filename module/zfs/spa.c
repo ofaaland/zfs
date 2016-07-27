@@ -6403,17 +6403,15 @@ spa_sync(spa_t *spa, uint64_t txg)
 	VERIFY(spa_writeable(spa));
 
 	/*
+	 * Check for another active import.
 	 * At first sync after a create, MMP blocks have not been written yet.
 	 * Skipping the test is safe because there is no data to protect.
 	 */
 	if (spa_syncing_txg(spa) > 0)
-		if ((error = spa_mmp_detect_foreign_import(spa)) != 0)
+		if ((error = spa_mmp_detect_foreign_import(spa)) != 0) {
 			olabug("MMP fault detected syncing txg %u error %d\n",
 			       (long long unsigned) spa_syncing_txg(spa), error);
-
-	/*
-	 * Check for another active import.
-	 */
+		}
 
 	/*
 	 * Lock out configuration changes.
@@ -6828,33 +6826,23 @@ spa_mmp_takeover(spa_t *spa)
 {
 	int rc;
 
-	/*
-	 * 1. Check whether pool is clean.
-	 * 2. If not, wait for a while to see if MMP blocks are being updated,
-	 * and quit if so.
-	 * 3. Overwrite the MMP blocks serially, in a random order, reading first
-	 * in a compare-and-swap manner.  If one is found that is not clean,
-	 * return 0; otherwise return EBUSY.
-	 */
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+	rc = vdev_mmp_takeover(spa->spa_root_vdev, 1);
+	spa_config_exit(spa, SCL_ALL, FTAG);
 
-	rc = vdev_mmpblocks_clean(spa->spa_root_vdev);
-	ASSERT(rc != ECKSUM);
-
-	if (rc == EBUSY)
-		rc = vdev_mmp_watch_for_activity(spa->spa_root_vdev);
-
-	if (rc)
-		return (SET_ERROR(rc));
-
-	rc=vdev_mmp_block_permuted_write(spa->spa_root_vdev);
-
-	return (SET_ERROR(rc));
+	return rc;
 }
 
 int
 spa_mmp_detect_foreign_import(spa_t *spa)
 {
-	return (vdev_mmpblock_changed_on_disk(spa->spa_root_vdev));
+	int rc;
+
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+	rc = vdev_mmpblock_changed_on_disk(spa->spa_root_vdev);
+	spa_config_exit(spa, SCL_ALL, FTAG);
+
+	return rc;
 }
 
 #if defined(_KERNEL) && defined(HAVE_SPL)

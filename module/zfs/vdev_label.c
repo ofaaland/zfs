@@ -1578,6 +1578,8 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 	ASSERT(vd);
 	ASSERT(vd->vdev_ops);
 	ASSERT(pass>=0 && pass<VDEV_MMP_ARRAYS);
+	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
+	ASSERT(io_flags & ZIO_FLAG_CONFIG_WRITER);
 
 	for (c = 0; c < vd->vdev_children; c++)
 		vdev_read_mmpblocks(NULL, vd->vdev_child[c], io_flags, pass);
@@ -1645,11 +1647,10 @@ vdev_read_all_mmpblocks(vdev_t *rvd, int pass)
 	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
 
 	ASSERT(rvd);
-	ASSERT(!(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL));
+	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
+	ASSERT(flags & ZIO_FLAG_CONFIG_WRITER);
 
-	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
 	vdev_read_mmpblocks(NULL, rvd, flags, pass);
-	spa_config_exit(spa, SCL_ALL, FTAG);
 
 	return 0;
 }
@@ -1737,7 +1738,7 @@ vdev_mmpblock_changed_on_disk(vdev_t *rvd)
 	vdev_t *vd;
 
 	ASSERT(rvd);
-	ASSERT(!(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL));
+	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
 
 	error = vdev_read_all_mmpblocks(rvd, MMP_LATER_READ);
 	if (error)
@@ -1757,7 +1758,7 @@ vdev_mmpblocks_clean(vdev_t *rvd)
 	void *ub;
 
 	ASSERT(rvd);
-	ASSERT(!(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL));
+	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
 
 	error = vdev_read_all_mmpblocks(rvd, MMP_INIT_READ);
 	if (error)
@@ -1961,6 +1962,7 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 	zio_t *zio;
 
 	ASSERT(top_level_vdev);
+	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL);
 
 	/* allocate space for array of pointers to vdevs */
 	leaf_vdev_array = kmem_alloc(leaf_array_size, KM_SLEEP);
@@ -1973,12 +1975,10 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 	mmp_ubbuf_setup(top_level_vdev, ubbuf);
 
 	/* array of pointers valid only while config lock held */
-	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
-
 	add_leaf_to_array(top_level_vdev, leaf_vdev_array);
 	rc = leaf_vdev_array->leaf_error;
 	if (rc)
-		goto release_config_lock;
+		goto free_buffers;
 
 	/*
 	 * Now we know # of leaf vdevs, create permutation. Should we allocate
@@ -2006,7 +2006,7 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 				blk->ub_mmp.mmp_op,
 				blk->ub_mmp.mmp_nodename);
 			rc = SET_ERROR(EBUSY); /* XXX choose a good error */
-			goto release_config_lock;
+			goto free_buffers;
 		}
 
 		zio = zio_root(spa, NULL, NULL, flags);
@@ -2018,9 +2018,7 @@ vdev_mmp_block_permuted_write(vdev_t *top_level_vdev)
 	/* Found no foreign ID, all MMP blocks have our ID now */
 	rc = 0;
 
-release_config_lock:
-	spa_config_exit(spa, SCL_ALL, FTAG);
-
+free_buffers:
 	if (rc) {
 		olabug("permuted write failed with rc: %d\n", rc);
 	}
@@ -2048,7 +2046,7 @@ release_config_lock:
  * spa_load_state==SPA_LOAD_IMPORT
  */
 int
-vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
+vdev_mmp_watch_for_activity(vdev_t *top_level_vdev, int need_lock)
 {
 	int mmp_wait_secs;
 	int waited = 0;
@@ -2057,11 +2055,26 @@ vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 
 	ASSERT(top_level_vdev);
 	ASSERT(top_level_vdev->vdev_spa);
+	ASSERT(spa_config_held(top_level_vdev->vdev_spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
+	/*
+	 * XXX config lock is needed to ensure the config I test for foreign
+	 * nodes is the same config that is imported, otherwise test is
+	 * meaningless.  I believe that lock ordering requires namespace lock
+	 * prior to taking config lock.  For Import case this is fine; I am in
+	 * process of changing contents of namespace anywa (adding a pool).
+	 * For case of adding a vdev or online'ing a device I am not changing
+	 * the namespace and this seems wrong, but might need to do it anyway.
+	 * Relaxing for testing.
+	 * See module/zfs/spa_misc.c discussion of locking order.
+	 */
+	/*
 	ASSERT( top_level_vdev->vdev_spa->spa_load_state == SPA_LOAD_OPEN ||
 		top_level_vdev->vdev_spa->spa_load_state == SPA_LOAD_IMPORT ||
 		top_level_vdev->vdev_spa->spa_load_state == SPA_LOAD_TRYIMPORT
 		);
-	/* XXX need to assert spa_namespace_lock is held */
+	*/
+	if (need_lock)
+		ASSERT( mutex_owner(&spa_namespace_lock) == curthread );
 
 	/*
 	 * XXX wait interval used here should come from the mmp blocks we read
@@ -2073,11 +2086,15 @@ vdev_mmp_watch_for_activity(vdev_t *top_level_vdev)
 	mmp_wait_secs = 2*(spa->spa_mmp.mmp_interval/HZ);
 
 	while (waited < mmp_wait_secs) {
-		mutex_exit(&spa_namespace_lock);
+		if (need_lock) {
+			mutex_exit(&spa_namespace_lock);
+		}
 		/* XXX where should polling frequency be set? */
 		delay(HZ);
 		waited++;
-		mutex_enter(&spa_namespace_lock);
+		if (need_lock) {
+			mutex_enter(&spa_namespace_lock);
+		}
 
 		error = vdev_mmpblock_changed_on_disk(top_level_vdev);
 		if (error)
@@ -2141,4 +2158,44 @@ vdev_mmpblock_store_open_id(vdev_t *rvd)
 
 	spa_config_exit(spa, SCL_ALL, FTAG);
 	kmem_free(ubbuf, sizeof(uberblock_t));
+}
+
+/*
+ * Determine whether another node is using any of the vdevs in the tree rooted
+ * at rvd.  If so, return an error code.  Othwerise, return 0.
+ * Note that rvd need not be the top level vdev of a pool.
+ */
+int
+vdev_mmp_takeover(vdev_t *rvd, int need_lock)
+{
+	int rc;
+	spa_t *spa;
+
+	ASSERT(rvd);
+	ASSERT(spa_config_held(rvd->vdev_spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
+
+	/*
+	 * 1. Check whether pool is clean.
+	 * 2. If not, wait for a while to see if MMP blocks are being updated,
+	 * and quit if so.
+	 * 3. Overwrite the MMP blocks serially, in a random order, reading first
+	 * in a compare-and-swap manner.  If one is found that is not clean,
+	 * return 0; otherwise return EBUSY.
+	 */
+
+	spa = rvd->vdev_spa;
+	rc = vdev_mmpblocks_clean(rvd);
+	ASSERT(rc != ECKSUM);
+
+	if (rc == EBUSY)
+		rc = vdev_mmp_watch_for_activity(rvd, need_lock);
+
+	if (rc)
+		return (SET_ERROR(rc));
+
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+	rc=vdev_mmp_block_permuted_write(rvd);
+	spa_config_exit(spa, (SCL_ALL^SCL_STATE_ALL), FTAG);
+
+	return (SET_ERROR(rc));
 }

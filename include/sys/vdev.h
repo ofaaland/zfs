@@ -152,8 +152,9 @@ int vdev_mmpblock_changed_on_disk(vdev_t *top_level_vdev);
 int vdev_mmpblocks_clean(vdev_t *top_level_vdev);
 void vdev_mmpblock_store_open_id(vdev_t *top_level_vdev);
 void vdev_mmpblock_clear_all(vdev_t *top_level_vdev);
-int vdev_mmp_watch_for_activity(vdev_t *top_level_vdev);
+int vdev_mmp_watch_for_activity(vdev_t *top_level_vdev, int need_lock);
 int vdev_mmp_block_permuted_write(vdev_t *top_level_vdev);
+int vdev_mmp_takeover(vdev_t *top_level_vdev, int need_lock);
 void olabug(const char *fmt, ...);
 
 typedef enum {
