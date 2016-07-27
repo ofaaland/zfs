@@ -2190,9 +2190,14 @@ vdev_mmp_takeover(vdev_t *rvd, int need_lock)
 	if (rc)
 		return (SET_ERROR(rc));
 
+	/* Is there a non-racy way to handle this?  Maybe require SCL_ALL at entry. */
+	spa_config_exit(spa, SCL_STATE_ALL, FTAG);
+
 	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
 	rc=vdev_mmp_block_permuted_write(rvd);
-	spa_config_exit(spa, (SCL_ALL^SCL_STATE_ALL), FTAG);
+	spa_config_exit(spa, SCL_ALL, FTAG);
+
+	spa_config_enter(spa, SCL_STATE_ALL, FTAG, RW_WRITER);
 
 	return (SET_ERROR(rc));
 }
