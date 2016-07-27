@@ -2424,7 +2424,7 @@ vdev_degrade(spa_t *spa, uint64_t guid, vdev_aux_t aux)
 int
 vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 {
-	int rc;
+	//int rc;
 	int original_vdev_offline, original_vdev_tmpoffline;
 	vdev_t *vd, *tvd, *pvd, *rvd = spa->spa_root_vdev;
 
