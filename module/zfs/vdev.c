@@ -2453,17 +2453,15 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 
 	vdev_reopen(tvd);
 
+/*
 	if ((rc = vdev_mmp_takeover(vd, 0)) != 0) {
 		vd->vdev_offline = original_vdev_offline;
 		vd->vdev_tmpoffline = original_vdev_tmpoffline;
 		vdev_reopen(tvd);
-		/*
-		 * XXX Need to do the right thing WRT checkremove and
-		 * forcefault, but whatever that is.
-		 */
+		 // XXX What to do with checkremove and forcefault
 		return (spa_vdev_state_exit(spa, NULL, rc));
 	}
-
+*/
 
 	vd->vdev_checkremove = vd->vdev_forcefault = B_FALSE;
 
