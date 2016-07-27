@@ -1642,12 +1642,11 @@ vdev_read_mmpblocks(zio_t *zio, vdev_t *vd, int io_flags, int pass)
 static int
 vdev_read_all_mmpblocks(vdev_t *rvd, int pass)
 {
-	spa_t *spa = rvd->vdev_spa;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
 	    ZIO_FLAG_SPECULATIVE | ZIO_FLAG_TRYHARD;
 
 	ASSERT(rvd);
-	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
+	ASSERT(spa_config_held(rvd->vdev_spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
 	ASSERT(flags & ZIO_FLAG_CONFIG_WRITER);
 
 	vdev_read_mmpblocks(NULL, rvd, flags, pass);
@@ -1734,11 +1733,10 @@ int
 vdev_mmpblock_changed_on_disk(vdev_t *rvd)
 {
 	int error;
-	spa_t *spa = rvd->vdev_spa;
 	vdev_t *vd;
 
 	ASSERT(rvd);
-	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
+	ASSERT(spa_config_held(rvd->vdev_spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
 
 	error = vdev_read_all_mmpblocks(rvd, MMP_LATER_READ);
 	if (error)
@@ -1754,11 +1752,10 @@ int
 vdev_mmpblocks_clean(vdev_t *rvd)
 {
 	int error;
-	spa_t *spa = rvd->vdev_spa;
 	void *ub;
 
 	ASSERT(rvd);
-	ASSERT(spa_config_held(spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
+	ASSERT(spa_config_held(rvd->vdev_spa, SCL_STATE_ALL, RW_WRITER) == SCL_STATE_ALL);
 
 	error = vdev_read_all_mmpblocks(rvd, MMP_INIT_READ);
 	if (error)
