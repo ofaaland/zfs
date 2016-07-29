@@ -3011,6 +3011,7 @@ zio_checksum_verify(zio_t *zio)
 	int error;
 
 	ASSERT(zio->io_vd != NULL);
+	ASSERT(zio != NULL);
 
 	if (bp == NULL) {
 		/*

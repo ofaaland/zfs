@@ -697,6 +697,7 @@ extern void spa_config_update(spa_t *spa, int what);
 
 /* Namespace manipulation */
 extern spa_t *spa_lookup(const char *name);
+extern spa_t *spa_lookup_any(const char *name);
 extern spa_t *spa_add(const char *name, nvlist_t *config, const char *altroot);
 extern void spa_remove(spa_t *spa);
 extern spa_t *spa_next(spa_t *prev);
@@ -934,6 +935,7 @@ extern void spa_mmp_seq_bump(spa_t *spa);
 extern void spa_mmp_init(mmp_phys_t *mmp);
 
 int spa_mmp_detect_foreign_import(spa_t *spa);
+int spa_mmp_takeover(spa_t *spa);
 
 #ifdef	__cplusplus
 }

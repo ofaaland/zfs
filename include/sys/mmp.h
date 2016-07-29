@@ -28,9 +28,9 @@ typedef enum mmp_op {
 
 struct mmp_phys {
 	uint64_t  mmp_magic;		/* MMP_MAGIC if valid */
-	uint64_t  mmp_pool_guid;	
+	uint64_t  mmp_pool_guid;
 	uint64_t  mmp_open_id;		/* ID associated with an import */
-	uint64_t  mmp_seq;		/* MMP blocks written since open */
+	uint64_t  mmp_seq;		/* monotonically increases, indicating pool imported */
 	uint32_t  mmp_interval;		/* Max time to next mmp write period between mmp write */
 	uint32_t  mmp_delay;		/* Approx. delay at last update */
 	char	  mmp_nodename[64];	/* Node which wrote this block */

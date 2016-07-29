@@ -1,0 +1,6 @@
+spa_add
+spa_load_impl (readonly)
+spa_add
+spa_load_impl (writeable)
+spa_sync (writeable)
+vdev_config_sync

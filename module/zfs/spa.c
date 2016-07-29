@@ -1271,9 +1271,12 @@ spa_unload(spa_t *spa)
 
 	/*
 	 * Issue MMP block writes to indicate pool not imported
+	 * XXX This introduces a race.  May be a better way it can be done,
+	 * so leaving this reminder instead of removing completely.
+	 *
+	 *if (spa->spa_root_vdev)
+	 *	vdev_mmpblock_clear_all(spa->spa_root_vdev);
 	 */
-	if (spa->spa_root_vdev)
-		vdev_mmpblock_clear_all(spa->spa_root_vdev);
 
 	/*
 	 * Stop async tasks.
@@ -2133,12 +2136,10 @@ spa_mmp_init(mmp_phys_t *mmp)
 	memset(mmp, 0, sizeof(*mmp));
 
 	mmp->mmp_magic = MMP_MAGIC;
-	mmp->mmp_interval = 5000;
-	mmp->mmp_first_txg = 50;
 	/*
-	 * Seems to me like utsname()->nodename might become invalid before strncpy
-	 * begins its work, but I see no _get() or equivalent to prevent that.
+	 * XXX where should default mmp_interval be recorded?  Probably not here.
 	 */
+	mmp->mmp_interval = 5*HZ;
 	strncpy(mmp->mmp_nodename, utsname()->nodename,
 	    sizeof(mmp->mmp_nodename));
 }
@@ -2798,16 +2799,13 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 			    error));
 	}
 
-	/* XXX check for foreign import but do nothing for now */
-	(void) vdev_mmpblock_foreign_id(spa->spa_root_vdev);
-
 	if (spa_writeable(spa)) {
 		spa_mmp_init_open_id(&spa->spa_mmp);
-
-		/* Write out all MMP blocks with our import ID. */
-		vdev_mmpblock_store_open_id(spa->spa_root_vdev);
+		if ((error = spa_mmp_takeover(spa))) {
+			olabug("spa_mmp_takeover returned %d\n", error);
+			return (SET_ERROR(error));
+		}
 	}
-
 
 	if (spa_writeable(spa) && (state == SPA_LOAD_RECOVER ||
 	    spa->spa_load_max_txg == UINT64_MAX)) {
@@ -3415,7 +3413,7 @@ spa_get_stats(const char *name, nvlist_t **config,
 	if (altroot) {
 		if (spa == NULL) {
 			mutex_enter(&spa_namespace_lock);
-			spa = spa_lookup(name);
+			spa = spa_lookup_any(name);
 			if (spa)
 				spa_altroot(spa, altroot, buflen);
 			else
@@ -3638,7 +3636,7 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	 * If this pool already exists, return failure.
 	 */
 	mutex_enter(&spa_namespace_lock);
-	if (spa_lookup(poolname) != NULL) {
+	if (spa_lookup_any(poolname) != NULL) {
 		mutex_exit(&spa_namespace_lock);
 		return (SET_ERROR(EEXIST));
 	}
@@ -4097,7 +4095,7 @@ spa_import(char *pool, nvlist_t *config, nvlist_t *props, uint64_t flags)
 	 * If a pool with this name exists, return failure.
 	 */
 	mutex_enter(&spa_namespace_lock);
-	if (spa_lookup(pool) != NULL) {
+	if (spa_lookup_any(pool) != NULL) {
 		mutex_exit(&spa_namespace_lock);
 		return (SET_ERROR(EEXIST));
 	}
@@ -5095,7 +5093,7 @@ spa_vdev_split_mirror(spa_t *spa, char *newname, nvlist_t *config,
 		return (spa_vdev_exit(spa, NULL, txg, error));
 
 	/* check new spa name before going any further */
-	if (spa_lookup(newname) != NULL)
+	if (spa_lookup_any(newname) != NULL)
 		return (spa_vdev_exit(spa, NULL, txg, EEXIST));
 
 	/*
@@ -6404,13 +6402,16 @@ spa_sync(spa_t *spa, uint64_t txg)
 
 	VERIFY(spa_writeable(spa));
 
-
-	if (spa_mmp_detect_foreign_import(spa) != 0)
-		dprintf("MMP fault detected");
-
 	/*
 	 * Check for another active import.
+	 * At first sync after a create, MMP blocks have not been written yet.
+	 * Skipping the test is safe because there is no data to protect.
 	 */
+	if (spa_syncing_txg(spa) > 0)
+		if ((error = spa_mmp_detect_foreign_import(spa)) != 0) {
+			olabug("MMP fault detected syncing txg %u error %d\n",
+			       (long long unsigned) spa_syncing_txg(spa), error);
+		}
 
 	/*
 	 * Lock out configuration changes.
@@ -6816,10 +6817,32 @@ spa_mmp_seq_bump(spa_t *spa)
 	mutex_exit(&spa->spa_mmp_lock);
 }
 
+/*
+ * Determine whether another node has the pool imported.  If so,
+ * return an error code.  Othwerise, return 0.
+ */
+int
+spa_mmp_takeover(spa_t *spa)
+{
+	int rc;
+
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+	rc = vdev_mmp_takeover(spa->spa_root_vdev, 1);
+	spa_config_exit(spa, SCL_ALL, FTAG);
+
+	return rc;
+}
+
 int
 spa_mmp_detect_foreign_import(spa_t *spa)
 {
-	return (vdev_mmpblock_foreign_id(spa->spa_root_vdev));
+	int rc;
+
+	spa_config_enter(spa, SCL_ALL, FTAG, RW_WRITER);
+	rc = vdev_mmpblock_changed_on_disk(spa->spa_root_vdev);
+	spa_config_exit(spa, SCL_ALL, FTAG);
+
+	return rc;
 }
 
 #if defined(_KERNEL) && defined(HAVE_SPL)

@@ -1,0 +1,6 @@
+spa_add
+spa_sync (writeable)
+vdev_config_sync
+spa_create
+spa_sync (writeable)
+vdev_config_sync

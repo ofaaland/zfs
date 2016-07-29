@@ -1,0 +1,20 @@
+spa_sync (writeable)
+spa_sync (writeable)
+vdev_config_sync
+spa_sync (writeable)
+spa_sync (writeable)
+vdev_config_sync
+spa_sync (writeable)
+SELinux: initialized (dev zfs, type zfs), uses xattr
+spa_sync (writeable)
+vdev_config_sync
+spa_sync (writeable)
+spa_sync (writeable)
+spa_sync (writeable)
+vdev_config_sync
+spa_sync (writeable)
+spa_sync (writeable)
+spa_sync (writeable)
+vdev_config_sync
+spa_sync (writeable)
+spa_sync (writeable)

@@ -131,7 +131,7 @@ spa_config_load(void)
 
 		VERIFY(nvpair_value_nvlist(nvpair, &child) == 0);
 
-		if (spa_lookup(nvpair_name(nvpair)) != NULL)
+		if (spa_lookup_any(nvpair_name(nvpair)) != NULL)
 			continue;
 		(void) spa_add(nvpair_name(nvpair), child, NULL);
 	}

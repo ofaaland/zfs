@@ -1,0 +1,6 @@
+spa_sync (writeable)	X times
+vdev_config_sync
+spa_sync (writeable)	X times
+vdev_config_sync
+spa_sync (writeable)
+spa_sync (writeable)

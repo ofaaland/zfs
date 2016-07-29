@@ -313,6 +313,7 @@ vdev_alloc_common(spa_t *spa, uint_t id, uint64_t guid, vdev_ops_t *ops)
 {
 	vdev_t *vd;
 	int t;
+	int i;
 
 	vd = kmem_zalloc(sizeof (vdev_t), KM_SLEEP);
 
@@ -345,6 +346,21 @@ vdev_alloc_common(spa_t *spa, uint_t id, uint64_t guid, vdev_ops_t *ops)
 	vd->vdev_ops = ops;
 	vd->vdev_state = VDEV_STATE_CLOSED;
 	vd->vdev_ishole = (ops == &vdev_hole_ops);
+
+	/*
+	 * If we're a leaf, allocate memory for MMP blocks.
+	 * At this point, vd->vdev_top->vdev_ashift == 0, so
+	 * VDEV_UBERBLOCK_SIZE(vd) fails.  Use MAX_UBERBLOCK_SHIFT instead.
+	 * XXX should we skip this for some alloctypes?
+	 */
+	for (i=0; i<VDEV_MMP_ARRAYS; i++) {
+		if (vd->vdev_ops->vdev_op_leaf) {
+			vd->vdev_mmp[i] = zio_buf_alloc(VDEV_MMP_ARRAY_SIZE);
+			bzero(vd->vdev_mmp[i], VDEV_MMP_ARRAY_SIZE);
+		} else {
+			vd->vdev_mmp[i] = NULL;
+		}
+	}
 
 	list_link_init(&vd->vdev_config_dirty_node);
 	list_link_init(&vd->vdev_state_dirty_node);
@@ -597,7 +613,7 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 void
 vdev_free(vdev_t *vd)
 {
-	int c, t;
+	int c, t, i;
 	spa_t *spa = vd->vdev_spa;
 
 	/*
@@ -656,6 +672,10 @@ vdev_free(vdev_t *vd)
 		spa_spare_remove(vd);
 	if (vd->vdev_isl2cache)
 		spa_l2cache_remove(vd);
+
+	for (i=0; i<VDEV_MMP_ARRAYS; i++)
+		if (vd->vdev_mmp[i])
+			zio_buf_free(vd->vdev_mmp[i], VDEV_MMP_ARRAY_SIZE);
 
 	txg_list_destroy(&vd->vdev_ms_list);
 	txg_list_destroy(&vd->vdev_dtl_list);
@@ -2404,6 +2424,8 @@ vdev_degrade(spa_t *spa, uint64_t guid, vdev_aux_t aux)
 int
 vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 {
+	//int rc;
+	int original_vdev_offline, original_vdev_tmpoffline;
 	vdev_t *vd, *tvd, *pvd, *rvd = spa->spa_root_vdev;
 
 	spa_vdev_state_enter(spa, SCL_NONE);
@@ -2413,6 +2435,9 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 
 	if (!vd->vdev_ops->vdev_op_leaf)
 		return (spa_vdev_state_exit(spa, NULL, ENOTSUP));
+
+	original_vdev_offline = vd->vdev_offline;
+	original_vdev_tmpoffline = vd->vdev_tmpoffline;
 
 	tvd = vd->vdev_top;
 	vd->vdev_offline = B_FALSE;
@@ -2427,6 +2452,17 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 	}
 
 	vdev_reopen(tvd);
+
+/*
+	if ((rc = vdev_mmp_takeover(vd, 0)) != 0) {
+		vd->vdev_offline = original_vdev_offline;
+		vd->vdev_tmpoffline = original_vdev_tmpoffline;
+		vdev_reopen(tvd);
+		 // XXX What to do with checkremove and forcefault
+		return (spa_vdev_state_exit(spa, NULL, rc));
+	}
+*/
+
 	vd->vdev_checkremove = vd->vdev_forcefault = B_FALSE;
 
 	if (!vd->vdev_aux) {
