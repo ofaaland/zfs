@@ -819,6 +819,7 @@ process_options(int argc, char **argv)
 static void
 ztest_kill(ztest_shared_t *zs)
 {
+	printf("ztest_kill entered\n");
 	zs->zs_alloc = metaslab_class_get_alloc(spa_normal_class(ztest_spa));
 	zs->zs_space = metaslab_class_get_space(spa_normal_class(ztest_spa));
 
@@ -853,6 +854,7 @@ ztest_random(uint64_t range)
 static void
 ztest_record_enospc(const char *s)
 {
+	printf("ztest_record_enospc entered\n");
 	ztest_shared->zs_enospc_count++;
 }
 
@@ -1106,7 +1108,7 @@ ztest_random_dsl_prop(zfs_prop_t prop)
 
 static int
 ztest_dsl_prop_set_uint64(char *osname, zfs_prop_t prop, uint64_t value,
-    boolean_t inherit)
+                          boolean_t inherit)
 {
 	const char *propname = zfs_prop_to_name(prop);
 	const char *valname;
@@ -1114,6 +1116,7 @@ ztest_dsl_prop_set_uint64(char *osname, zfs_prop_t prop, uint64_t value,
 	uint64_t curval;
 	int error;
 
+	printf("ztest_dsl_prop_set_uint64 entered\n");
 	error = dsl_prop_set_int(osname, propname,
 	    (inherit ? ZPROP_SRC_NONE : ZPROP_SRC_LOCAL), value);
 
@@ -1149,6 +1152,7 @@ ztest_spa_prop_set_uint64(zpool_prop_t prop, uint64_t value)
 	nvlist_t *props = NULL;
 	int error;
 
+	printf("ztest_spa_prop_set_uint64 entered\n");
 	VERIFY(nvlist_alloc(&props, NV_UNIQUE_NAME, 0) == 0);
 	VERIFY(nvlist_add_uint64(props, zpool_prop_to_name(prop), value) == 0);
 
@@ -1184,6 +1188,7 @@ typedef struct {
 static ztest_znode_t *
 ztest_znode_init(uint64_t object)
 {
+	printf("ztest_znode_init entered\n");
 	ztest_znode_t *zp = umem_alloc(sizeof (*zp), UMEM_NOFAIL);
 
 	list_link_init(&zp->z_lnode);
@@ -1197,6 +1202,7 @@ ztest_znode_init(uint64_t object)
 static void
 ztest_znode_fini(ztest_znode_t *zp)
 {
+	printf("ztest_znode_fini entered\n");
 	ASSERT(refcount_is_zero(&zp->z_refcnt));
 	zfs_rlock_destroy(&zp->z_range_lock);
 	zp->z_object = 0;
@@ -1208,6 +1214,7 @@ ztest_znode_fini(ztest_znode_t *zp)
 static void
 ztest_zll_init(zll_t *zll)
 {
+	printf("ztest_zll_init entered\n");
 	mutex_init(&zll->z_lock, NULL, MUTEX_DEFAULT, NULL);
 	list_create(&zll->z_list, sizeof (ztest_znode_t),
 	    offsetof(ztest_znode_t, z_lnode));
@@ -1216,6 +1223,7 @@ ztest_zll_init(zll_t *zll)
 static void
 ztest_zll_destroy(zll_t *zll)
 {
+	printf("ztest_zll_destroy entered\n");
 	list_destroy(&zll->z_list);
 	mutex_destroy(&zll->z_lock);
 }
@@ -1224,6 +1232,7 @@ ztest_zll_destroy(zll_t *zll)
 static ztest_znode_t *
 ztest_znode_get(ztest_ds_t *zd, uint64_t object)
 {
+	printf("ztest_znode_get entered\n");
 	zll_t *zll = &zd->zd_range_lock[object & (ZTEST_OBJECT_LOCKS - 1)];
 	ztest_znode_t *zp = NULL;
 	mutex_enter(&zll->z_lock);
@@ -1246,6 +1255,7 @@ ztest_znode_get(ztest_ds_t *zd, uint64_t object)
 static void
 ztest_znode_put(ztest_ds_t *zd, ztest_znode_t *zp)
 {
+	printf("ztest_znode_put entered\n");
 	zll_t *zll = NULL;
 	ASSERT3U(zp->z_object, !=, 0);
 	zll = &zd->zd_range_lock[zp->z_object & (ZTEST_OBJECT_LOCKS - 1)];
@@ -1262,6 +1272,7 @@ ztest_znode_put(ztest_ds_t *zd, ztest_znode_t *zp)
 static void
 ztest_rll_init(rll_t *rll)
 {
+	printf("ztest_rll_init entered\n");
 	rll->rll_writer = NULL;
 	rll->rll_readers = 0;
 	mutex_init(&rll->rll_lock, NULL, MUTEX_DEFAULT, NULL);
@@ -1280,6 +1291,7 @@ ztest_rll_destroy(rll_t *rll)
 static void
 ztest_rll_lock(rll_t *rll, rl_type_t type)
 {
+	printf("ztest_rll_lock entered\n");
 	mutex_enter(&rll->rll_lock);
 
 	if (type == RL_READER) {
@@ -1298,6 +1310,7 @@ ztest_rll_lock(rll_t *rll, rl_type_t type)
 static void
 ztest_rll_unlock(rll_t *rll)
 {
+	printf("ztest_rll_unlock entered\n");
 	mutex_enter(&rll->rll_lock);
 
 	if (rll->rll_writer) {
@@ -1318,6 +1331,7 @@ ztest_rll_unlock(rll_t *rll)
 static void
 ztest_object_lock(ztest_ds_t *zd, uint64_t object, rl_type_t type)
 {
+	printf("ztest_object_lock entered\n");
 	rll_t *rll = &zd->zd_object_lock[object & (ZTEST_OBJECT_LOCKS - 1)];
 
 	ztest_rll_lock(rll, type);
@@ -1326,6 +1340,7 @@ ztest_object_lock(ztest_ds_t *zd, uint64_t object, rl_type_t type)
 static void
 ztest_object_unlock(ztest_ds_t *zd, uint64_t object)
 {
+	printf("ztest_object_unlock entered\n");
 	rll_t *rll = &zd->zd_object_lock[object & (ZTEST_OBJECT_LOCKS - 1)];
 
 	ztest_rll_unlock(rll);
@@ -1334,6 +1349,7 @@ ztest_object_unlock(ztest_ds_t *zd, uint64_t object)
 static ztest_zrl_t *
 ztest_zrl_init(rl_t *rl, ztest_znode_t *zp)
 {
+	printf("ztest_zrl_init entered\n");
 	ztest_zrl_t *zrl = umem_alloc(sizeof (*zrl), UMEM_NOFAIL);
 	zrl->z_rl = rl;
 	zrl->z_ztznode = zp;
@@ -1343,6 +1359,7 @@ ztest_zrl_init(rl_t *rl, ztest_znode_t *zp)
 static void
 ztest_zrl_fini(ztest_zrl_t *zrl)
 {
+	printf("ztest_zrl_fini entered\n");
 	umem_free(zrl, sizeof (*zrl));
 }
 
@@ -1359,6 +1376,7 @@ ztest_range_lock(ztest_ds_t *zd, uint64_t object, uint64_t offset,
 static void
 ztest_range_unlock(ztest_ds_t *zd, ztest_zrl_t *zrl)
 {
+	printf("ztest_range_unlock entered\n");
 	zfs_range_unlock(zrl->z_rl);
 	ztest_znode_put(zd, zrl->z_ztznode);
 	ztest_zrl_fini(zrl);
@@ -1367,6 +1385,7 @@ ztest_range_unlock(ztest_ds_t *zd, ztest_zrl_t *zrl)
 static void
 ztest_zd_init(ztest_ds_t *zd, ztest_shared_ds_t *szd, objset_t *os)
 {
+	printf("ztest_zd_init entered\n");
 	zd->zd_os = os;
 	zd->zd_zilog = dmu_objset_zil(os);
 	zd->zd_shared = szd;
@@ -1391,6 +1410,7 @@ ztest_zd_fini(ztest_ds_t *zd)
 {
 	int l;
 
+	printf("ztest_zd_fini entered\n");
 	mutex_destroy(&zd->zd_dirobj_lock);
 	(void) rwlock_destroy(&zd->zd_zilog_lock);
 
@@ -1409,6 +1429,7 @@ ztest_tx_assign(dmu_tx_t *tx, uint64_t txg_how, const char *tag)
 	uint64_t txg;
 	int error;
 
+	printf("ztest_tx_assign entered\n");
 	/*
 	 * Attempt to assign tx to some transaction group.
 	 */
@@ -1514,9 +1535,10 @@ ztest_bt_bonus(dmu_buf_t *db)
  */
 void
 ztest_fill_unused_bonus(dmu_buf_t *db, void *end, uint64_t obj,
-    objset_t *os, uint64_t gen)
+   objset_t *os, uint64_t gen)
 {
 	uint64_t *bonusp;
+	printf("ztest_fill_unused_bonus entered\n");
 
 	ASSERT(IS_P2ALIGNED((char *)end - (char *)db->db_data, 8));
 
@@ -1533,10 +1555,10 @@ ztest_fill_unused_bonus(dmu_buf_t *db, void *end, uint64_t obj,
  */
 void
 ztest_verify_unused_bonus(dmu_buf_t *db, void *end, uint64_t obj,
-    objset_t *os, uint64_t gen)
+   objset_t *os, uint64_t gen)
 {
 	uint64_t *bonusp;
-
+ 
 	for (bonusp = db->db_data; bonusp < (uint64_t *)end; bonusp++) {
 		uint64_t token = ZTEST_BONUS_FILL_TOKEN(obj, dmu_objset_id(os),
 		    gen, bonusp - (uint64_t *)db->db_data);
@@ -1561,6 +1583,7 @@ ztest_log_create(ztest_ds_t *zd, dmu_tx_t *tx, lr_create_t *lr)
 	size_t namesize = strlen(name) + 1;
 	itx_t *itx;
 
+	printf("ztest_log_create entered\n");
 	if (zil_replaying(zd->zd_zilog, tx))
 		return;
 
@@ -1578,6 +1601,7 @@ ztest_log_remove(ztest_ds_t *zd, dmu_tx_t *tx, lr_remove_t *lr, uint64_t object)
 	size_t namesize = strlen(name) + 1;
 	itx_t *itx;
 
+	printf("ztest_log_remove entered\n");
 	if (zil_replaying(zd->zd_zilog, tx))
 		return;
 
@@ -1595,6 +1619,7 @@ ztest_log_write(ztest_ds_t *zd, dmu_tx_t *tx, lr_write_t *lr)
 	itx_t *itx;
 	itx_wr_state_t write_state = ztest_random(WR_NUM_STATES);
 
+	printf("ztest_log_write entered\n");
 	if (zil_replaying(zd->zd_zilog, tx))
 		return;
 
@@ -1627,6 +1652,7 @@ ztest_log_truncate(ztest_ds_t *zd, dmu_tx_t *tx, lr_truncate_t *lr)
 {
 	itx_t *itx;
 
+	printf("ztest_log_truncate entered\n");
 	if (zil_replaying(zd->zd_zilog, tx))
 		return;
 
@@ -1643,6 +1669,7 @@ ztest_log_setattr(ztest_ds_t *zd, dmu_tx_t *tx, lr_setattr_t *lr)
 {
 	itx_t *itx;
 
+	printf("ztest_log_setattr entered\n");
 	if (zil_replaying(zd->zd_zilog, tx))
 		return;
 
@@ -1669,6 +1696,7 @@ ztest_replay_create(ztest_ds_t *zd, lr_create_t *lr, boolean_t byteswap)
 	int error = 0;
 	int bonuslen;
 
+	printf("ztest_replay_create entered\n");
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 
@@ -1754,6 +1782,7 @@ ztest_replay_remove(ztest_ds_t *zd, lr_remove_t *lr, boolean_t byteswap)
 	dmu_tx_t *tx;
 	uint64_t object, txg;
 
+	printf("ztest_replay_remove entered\n");
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 
@@ -1811,6 +1840,7 @@ ztest_replay_write(ztest_ds_t *zd, lr_write_t *lr, boolean_t byteswap)
 	arc_buf_t *abuf = NULL;
 	ztest_zrl_t *rl;
 
+	printf("ztest_replay_write entered\n");
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 
@@ -1930,6 +1960,7 @@ ztest_replay_truncate(ztest_ds_t *zd, lr_truncate_t *lr, boolean_t byteswap)
 	uint64_t txg;
 	ztest_zrl_t *rl;
 
+	printf("ztest_replay_truncate entered\n");
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 
@@ -1970,6 +2001,7 @@ ztest_replay_setattr(ztest_ds_t *zd, lr_setattr_t *lr, boolean_t byteswap)
 	ztest_block_tag_t *bbt;
 	uint64_t txg, lrtxg, crtxg, dnodesize;
 
+	printf("ztest_replay_setattr entered\n");
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 
@@ -2073,6 +2105,7 @@ ztest_get_done(zgd_t *zgd, int error)
 	ztest_ds_t *zd = zzp->z_zd;
 	uint64_t object = zzp->z_object;
 
+	printf("ztest_get_done entered\n");
 	if (zgd->zgd_db)
 		dmu_buf_rele(zgd->zgd_db, zgd);
 
@@ -2103,6 +2136,7 @@ ztest_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 	int error;
 	ztest_zgd_private_t *zgd_private;
 
+	printf("ztest_get_data entered\n");
 	ztest_object_lock(zd, object, RL_READER);
 	error = dmu_bonus_hold(os, object, FTAG, &db);
 	if (error) {
@@ -2209,6 +2243,7 @@ ztest_lookup(ztest_ds_t *zd, ztest_od_t *od, int count)
 	int error;
 	int i;
 
+	printf("ztest_lookup entered\n");
 	ASSERT(mutex_held(&zd->zd_dirobj_lock));
 
 	for (i = 0; i < count; i++, od++) {
@@ -2250,6 +2285,7 @@ ztest_create(ztest_ds_t *zd, ztest_od_t *od, int count)
 	int missing = 0;
 	int i;
 
+	printf("ztest_create entered\n");
 	ASSERT(mutex_held(&zd->zd_dirobj_lock));
 
 	for (i = 0; i < count; i++, od++) {
@@ -2296,6 +2332,7 @@ ztest_remove(ztest_ds_t *zd, ztest_od_t *od, int count)
 	int error;
 	int i;
 
+	printf("ztest_remove entered\n");
 	ASSERT(mutex_held(&zd->zd_dirobj_lock));
 
 	od += count - 1;
@@ -2330,10 +2367,12 @@ ztest_remove(ztest_ds_t *zd, ztest_od_t *od, int count)
 
 static int
 ztest_write(ztest_ds_t *zd, uint64_t object, uint64_t offset, uint64_t size,
-    void *data)
+   void *data)
 {
 	lr_write_t *lr;
 	int error;
+ 
+	printf("ztest_write entered\n");
 
 	lr = ztest_lr_alloc(sizeof (*lr) + size, NULL);
 
@@ -2358,6 +2397,7 @@ ztest_truncate(ztest_ds_t *zd, uint64_t object, uint64_t offset, uint64_t size)
 	lr_truncate_t *lr;
 	int error;
 
+	printf("ztest_truncate entered\n");
 	lr = ztest_lr_alloc(sizeof (*lr), NULL);
 
 	lr->lr_foid = object;
@@ -2377,6 +2417,7 @@ ztest_setattr(ztest_ds_t *zd, uint64_t object)
 	lr_setattr_t *lr;
 	int error;
 
+	printf("ztest_setattr entered\n");
 	lr = ztest_lr_alloc(sizeof (*lr), NULL);
 
 	lr->lr_foid = object;
@@ -2398,6 +2439,7 @@ ztest_prealloc(ztest_ds_t *zd, uint64_t object, uint64_t offset, uint64_t size)
 	uint64_t txg;
 	ztest_zrl_t *rl;
 
+	printf("ztest_prealloc entered\n");
 	txg_wait_synced(dmu_objset_pool(os), 0);
 
 	ztest_object_lock(zd, object, RL_READER);
@@ -2431,6 +2473,7 @@ ztest_io(ztest_ds_t *zd, uint64_t object, uint64_t offset)
 	uint64_t blocksize;
 	void *data;
 
+	printf("ztest_io entered\n");
 	VERIFY(dmu_object_info(zd->zd_os, object, &doi) == 0);
 	blocksize = doi.doi_data_block_size;
 	data = umem_alloc(blocksize, UMEM_NOFAIL);
@@ -2511,7 +2554,7 @@ ztest_io(ztest_ds_t *zd, uint64_t object, uint64_t offset)
  */
 static void
 ztest_od_init(ztest_od_t *od, uint64_t id, char *tag, uint64_t index,
-    dmu_object_type_t type, uint64_t blocksize, uint64_t dnodesize,
+   dmu_object_type_t type, uint64_t blocksize, uint64_t dnodesize,
     uint64_t gen)
 {
 	od->od_dir = ZTEST_DIROBJ;
@@ -2559,6 +2602,7 @@ ztest_zil_commit(ztest_ds_t *zd, uint64_t id)
 {
 	zilog_t *zilog = zd->zd_zilog;
 
+	printf("ztest_zil_commit entered\n");
 	(void) rw_rdlock(&zd->zd_zilog_lock);
 
 	zil_commit(zilog, ztest_random(ZTEST_OBJECTS));
@@ -2587,6 +2631,7 @@ void
 ztest_zil_remount(ztest_ds_t *zd, uint64_t id)
 {
 	objset_t *os = zd->zd_os;
+	printf("ztest_zil_remount entered\n");
 
 	/*
 	 * We grab the zd_dirobj_lock to ensure that no other thread is
@@ -2608,6 +2653,22 @@ ztest_zil_remount(ztest_ds_t *zd, uint64_t id)
 }
 
 /*
+ * Wrapper for spa_open to help debug ztest failure.
+ */
+
+static int
+do_spa_open(const char *name, spa_t **spa, void *tag)
+{
+	int rc;
+
+	rc = spa_open(name, spa, tag);
+	if (rc != 0) {
+		printf("spa_open failed for pool %s rc %d\n", name, rc);
+	}
+	return rc;
+}
+
+/*
  * Verify that we can't destroy an active pool, create an existing pool,
  * or create a pool with a bad vdev spec.
  */
@@ -2618,6 +2679,7 @@ ztest_spa_create_destroy(ztest_ds_t *zd, uint64_t id)
 	ztest_shared_opts_t *zo = &ztest_opts;
 	spa_t *spa;
 	nvlist_t *nvroot;
+	printf("ztest_spa_create_destroy entered\n");
 
 	/*
 	 * Attempt to create using a bad file.
@@ -2643,7 +2705,7 @@ ztest_spa_create_destroy(ztest_ds_t *zd, uint64_t id)
 	nvroot = make_vdev_root("/dev/bogus", NULL, NULL, 0, 0, 0, 0, 0, 1);
 	VERIFY3U(EEXIST, ==, spa_create(zo->zo_pool, nvroot, NULL, NULL));
 	nvlist_free(nvroot);
-	VERIFY3U(0, ==, spa_open(zo->zo_pool, &spa, FTAG));
+	VERIFY3U(0, ==, do_spa_open(zo->zo_pool, &spa, FTAG));
 	VERIFY3U(EBUSY, ==, spa_destroy(zo->zo_pool));
 	spa_close(spa, FTAG);
 
@@ -2659,6 +2721,7 @@ ztest_spa_upgrade(ztest_ds_t *zd, uint64_t id)
 	uint64_t version, newversion;
 	nvlist_t *nvroot, *props;
 	char *name;
+	printf("ztest_spa_upgrade entered\n");
 
 	mutex_enter(&ztest_vdev_lock);
 	name = kmem_asprintf("%s_upgrade", ztest_opts.zo_pool);
@@ -2703,7 +2766,7 @@ ztest_spa_upgrade(ztest_ds_t *zd, uint64_t id)
 	fnvlist_free(nvroot);
 	fnvlist_free(props);
 
-	VERIFY3S(spa_open(name, &spa, FTAG), ==, 0);
+	VERIFY3S(do_spa_open(name, &spa, FTAG), ==, 0);
 	VERIFY3U(spa_version(spa), ==, version);
 	newversion = ztest_random_spa_version(version + 1);
 
@@ -2772,6 +2835,7 @@ ztest_vdev_add_remove(ztest_ds_t *zd, uint64_t id)
 	uint64_t guid;
 	nvlist_t *nvroot;
 	int error;
+	printf("ztest_vdev_add_remove entered\n");
 
 	mutex_enter(&ztest_vdev_lock);
 	leaves = MAX(zs->zs_mirrors + zs->zs_splits, 1) * ztest_opts.zo_raidz;
@@ -2844,6 +2908,7 @@ ztest_vdev_aux_add_remove(ztest_ds_t *zd, uint64_t id)
 	uint64_t guid = 0;
 	int error;
 
+	printf("ztest_vdev_aux_add_remove entered\n");
 	path = umem_alloc(MAXPATHLEN, UMEM_NOFAIL);
 
 	if (ztest_random(2) == 0) {
@@ -2929,6 +2994,7 @@ ztest_split_pool(ztest_ds_t *zd, uint64_t id)
 	uint_t c, children, schildren = 0, lastlogid = 0;
 	int error = 0;
 
+	printf("ztest_split_pool entered\n");
 	mutex_enter(&ztest_vdev_lock);
 
 	/* ensure we have a useable config; mirrors of raidz aren't supported */
@@ -3036,6 +3102,7 @@ ztest_vdev_attach_detach(ztest_ds_t *zd, uint64_t id)
 	int oldvd_is_log;
 	int error, expected_error;
 
+	printf("ztest_vdev_attach_detach entered\n");
 	oldpath = umem_alloc(MAXPATHLEN, UMEM_NOFAIL);
 	newpath = umem_alloc(MAXPATHLEN, UMEM_NOFAIL);
 
@@ -3326,6 +3393,7 @@ ztest_vdev_LUN_growth(ztest_ds_t *zd, uint64_t id)
 	uint64_t top;
 	uint64_t old_class_space, new_class_space, old_ms_count, new_ms_count;
 
+	printf("ztest_vdev_LUN_growth entered\n");
 	mutex_enter(&ztest_vdev_lock);
 	spa_config_enter(spa, SCL_STATE, spa, RW_READER);
 
@@ -3451,6 +3519,7 @@ ztest_vdev_LUN_growth(ztest_ds_t *zd, uint64_t id)
 static void
 ztest_objset_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 {
+	printf("ztest_objset_create_cb entered\n");
 	/*
 	 * Create the objects common to all ztest datasets.
 	 */
@@ -3462,7 +3531,9 @@ static int
 ztest_dataset_create(char *dsname)
 {
 	uint64_t zilset = ztest_random(100);
-	int err = dmu_objset_create(dsname, DMU_OST_OTHER, 0,
+	int err;
+	printf("ztest_dataset_create entered\n");
+	err = dmu_objset_create(dsname, DMU_OST_OTHER, 0,
 	    ztest_objset_create_cb, NULL);
 
 	if (err || zilset < 80)
@@ -3482,6 +3553,7 @@ ztest_objset_destroy_cb(const char *name, void *arg)
 	dmu_object_info_t doi;
 	int error;
 
+	printf("ztest_objset_destroy_cb entered\n");
 	/*
 	 * Verify that the dataset contains a directory object.
 	 */
@@ -3515,6 +3587,7 @@ ztest_snapshot_create(char *osname, uint64_t id)
 	char snapname[ZFS_MAX_DATASET_NAME_LEN];
 	int error;
 
+	printf("ztest_snapshot_create entered\n");
 	(void) snprintf(snapname, sizeof (snapname), "%llu", (u_longlong_t)id);
 
 	error = dmu_objset_snapshot_one(osname, snapname);
@@ -3535,6 +3608,7 @@ ztest_snapshot_destroy(char *osname, uint64_t id)
 	char snapname[ZFS_MAX_DATASET_NAME_LEN];
 	int error;
 
+	printf("ztest_snapshot_destroy entered\n");
 	(void) snprintf(snapname, sizeof (snapname), "%s@%llu", osname,
 	    (u_longlong_t)id);
 
@@ -3556,6 +3630,7 @@ ztest_dmu_objset_create_destroy(ztest_ds_t *zd, uint64_t id)
 	zilog_t *zilog;
 	int i;
 
+	printf("ztest_dmu_objset_create_destroy entered\n");
 	zdtmp = umem_alloc(sizeof (ztest_ds_t), UMEM_NOFAIL);
 
 	(void) rw_rdlock(&ztest_name_lock);
@@ -3655,6 +3730,7 @@ out:
 void
 ztest_dmu_snapshot_create_destroy(ztest_ds_t *zd, uint64_t id)
 {
+	printf("ztest_dmu_snapshot_create_destroy entered\n");
 	(void) rw_rdlock(&ztest_name_lock);
 	(void) ztest_snapshot_destroy(zd->zd_name, id);
 	(void) ztest_snapshot_create(zd->zd_name, id);
@@ -3674,6 +3750,7 @@ ztest_dsl_dataset_cleanup(char *osname, uint64_t id)
 	char *snap3name;
 	int error;
 
+	printf("ztest_dsl_dataset_cleanup entered\n");
 	snap1name  = umem_alloc(ZFS_MAX_DATASET_NAME_LEN, UMEM_NOFAIL);
 	clone1name = umem_alloc(ZFS_MAX_DATASET_NAME_LEN, UMEM_NOFAIL);
 	snap2name  = umem_alloc(ZFS_MAX_DATASET_NAME_LEN, UMEM_NOFAIL);
@@ -3729,6 +3806,7 @@ ztest_dsl_dataset_promote_busy(ztest_ds_t *zd, uint64_t id)
 	char *osname = zd->zd_name;
 	int error;
 
+	printf("ztest_dsl_dataset_promote_busy entered\n");
 	snap1name  = umem_alloc(ZFS_MAX_DATASET_NAME_LEN, UMEM_NOFAIL);
 	clone1name = umem_alloc(ZFS_MAX_DATASET_NAME_LEN, UMEM_NOFAIL);
 	snap2name  = umem_alloc(ZFS_MAX_DATASET_NAME_LEN, UMEM_NOFAIL);
@@ -3835,6 +3913,7 @@ ztest_dmu_object_alloc_free(ztest_ds_t *zd, uint64_t id)
 	int size;
 	int b;
 
+	printf("ztest_dmu_object_alloc_free entered\n");
 	size = sizeof (ztest_od_t) * OD_ARRAY_SIZE;
 	od = umem_alloc(size, UMEM_NOFAIL);
 	batchsize = OD_ARRAY_SIZE;
@@ -3869,6 +3948,7 @@ ztest_dmu_read_write(ztest_ds_t *zd, uint64_t id)
 	int size;
 	ztest_od_t *od;
 
+	printf("ztest_dmu_read_write entered\n");
 	objset_t *os = zd->zd_os;
 	size = sizeof (ztest_od_t) * OD_ARRAY_SIZE;
 	od = umem_alloc(size, UMEM_NOFAIL);
@@ -4170,6 +4250,7 @@ ztest_dmu_read_write_zcopy(ztest_ds_t *zd, uint64_t id)
 	arc_buf_t **bigbuf_arcbufs;
 	dmu_object_info_t doi;
 
+	printf("ztest_dmu_read_write_zcopy entered\n");
 	size = sizeof (ztest_od_t) * OD_ARRAY_SIZE;
 	od = umem_alloc(size, UMEM_NOFAIL);
 
@@ -4393,6 +4474,7 @@ ztest_dmu_write_parallel(ztest_ds_t *zd, uint64_t id)
 {
 	ztest_od_t *od;
 
+	printf("ztest_dmu_write_parallel entered\n");
 	od = umem_alloc(sizeof (ztest_od_t), UMEM_NOFAIL);
 	uint64_t offset = (1ULL << (ztest_random(20) + 43)) +
 	    (ztest_random(ZTEST_RANGE_LOCKS) << SPA_MAXBLOCKSHIFT);
@@ -4423,6 +4505,7 @@ ztest_dmu_prealloc(ztest_ds_t *zd, uint64_t id)
 	uint64_t blocksize = ztest_random_blocksize();
 	void *data;
 
+	printf("ztest_dmu_prealloc entered\n");
 	od = umem_alloc(sizeof (ztest_od_t), UMEM_NOFAIL);
 
 	ztest_od_init(od, id, FTAG, 0, DMU_OT_UINT64_OTHER, blocksize, 0, 0);
@@ -4477,6 +4560,7 @@ ztest_zap(ztest_ds_t *zd, uint64_t id)
 	int error;
 	char *hc[2] = { "s.acl.h", ".s.open.h.hyLZlg" };
 
+	printf("ztest_zap entered\n");
 	od = umem_alloc(sizeof (ztest_od_t), UMEM_NOFAIL);
 	ztest_od_init(od, id, FTAG, 0, DMU_OT_ZAP_OTHER, 0, 0, 0);
 
@@ -4614,6 +4698,7 @@ ztest_fzap(ztest_ds_t *zd, uint64_t id)
 	uint64_t object, txg;
 	int i;
 
+	printf("ztest_fzap entered\n");
 	od = umem_alloc(sizeof (ztest_od_t), UMEM_NOFAIL);
 	ztest_od_init(od, id, FTAG, 0, DMU_OT_ZAP_OTHER, 0, 0, 0);
 
@@ -4663,6 +4748,7 @@ ztest_zap_parallel(ztest_ds_t *zd, uint64_t id)
 	char name[20], string_value[20];
 	void *data;
 
+	printf("ztest_zap_parallel entered\n");
 	od = umem_alloc(sizeof (ztest_od_t), UMEM_NOFAIL);
 	ztest_od_init(od, ID_PARALLEL, FTAG, micro, DMU_OT_ZAP_OTHER, 0, 0, 0);
 
@@ -4785,6 +4871,7 @@ ztest_commit_callback(void *arg, int error)
 	ztest_cb_data_t *data = arg;
 	uint64_t synced_txg;
 
+	printf("ztest_commit_callback entered\n");
 	VERIFY(data != NULL);
 	VERIFY3S(data->zcd_expected_err, ==, error);
 	VERIFY(!data->zcd_called);
@@ -4832,6 +4919,7 @@ ztest_create_cb_data(objset_t *os, uint64_t txg)
 {
 	ztest_cb_data_t *cb_data;
 
+	printf("ztest_create_cb_data entered\n");
 	cb_data = umem_zalloc(sizeof (ztest_cb_data_t), UMEM_NOFAIL);
 
 	cb_data->zcd_txg = txg;
@@ -4854,6 +4942,7 @@ ztest_dmu_commit_callbacks(ztest_ds_t *zd, uint64_t id)
 	uint64_t old_txg, txg;
 	int i, error = 0;
 
+	printf("ztest_dmu_commit_callbacks entered\n");
 	od = umem_alloc(sizeof (ztest_od_t), UMEM_NOFAIL);
 	ztest_od_init(od, id, FTAG, 0, DMU_OT_UINT64_OTHER, 0, 0, 0);
 
@@ -4988,6 +5077,7 @@ ztest_verify_dnode_bt(ztest_ds_t *zd, uint64_t id)
 	uint64_t obj;
 	int err = 0;
 
+	printf("ztest_verify_dnode_bt entered\n");
 	for (obj = 0; err == 0; err = dmu_object_next(os, &obj, FALSE, 0)) {
 		ztest_block_tag_t *bt = NULL;
 		dmu_object_info_t doi;
@@ -5023,6 +5113,7 @@ ztest_dsl_prop_get_set(ztest_ds_t *zd, uint64_t id)
 	};
 	int p;
 
+	printf("ztest_dsl_prop_get_set entered\n");
 	(void) rw_rdlock(&ztest_name_lock);
 
 	for (p = 0; p < sizeof (proplist) / sizeof (proplist[0]); p++)
@@ -5041,6 +5132,7 @@ ztest_spa_prop_get_set(ztest_ds_t *zd, uint64_t id)
 {
 	nvlist_t *props = NULL;
 
+	printf("ztest_spa_prop_get_set entered\n");
 	(void) rw_rdlock(&ztest_name_lock);
 
 	(void) ztest_spa_prop_set_uint64(ZPOOL_PROP_DEDUPDITTO,
@@ -5088,6 +5180,7 @@ ztest_dmu_snapshot_hold(ztest_ds_t *zd, uint64_t id)
 	char osname[ZFS_MAX_DATASET_NAME_LEN];
 	nvlist_t *holds;
 
+	printf("ztest_dmu_snapshot_hold entered\n");
 	(void) rw_rdlock(&ztest_name_lock);
 
 	dmu_objset_name(os, osname);
@@ -5222,6 +5315,7 @@ ztest_fault_inject(ztest_ds_t *zd, uint64_t id)
 	uint64_t guid0 = 0;
 	boolean_t islog = B_FALSE;
 
+	printf("ztest_fault_inject entered\n");
 	path0 = umem_alloc(MAXPATHLEN, UMEM_NOFAIL);
 	pathrand = umem_alloc(MAXPATHLEN, UMEM_NOFAIL);
 
@@ -5475,6 +5569,7 @@ ztest_ddt_repair(ztest_ds_t *zd, uint64_t id)
 	int copies = 2 * ZIO_DEDUPDITTO_MIN;
 	int i;
 
+	printf("ztest_ddt_repair entered\n");
 	blocksize = ztest_random_blocksize();
 	blocksize = MIN(blocksize, 2048);	/* because we write so many */
 
@@ -5578,6 +5673,7 @@ ztest_scrub(ztest_ds_t *zd, uint64_t id)
 {
 	spa_t *spa = ztest_spa;
 
+	printf("ztest_scrub entered\n");
 	(void) spa_scan(spa, POOL_SCAN_SCRUB);
 	(void) poll(NULL, 0, 100); /* wait a moment, then force a restart */
 	(void) spa_scan(spa, POOL_SCAN_SCRUB);
@@ -5594,6 +5690,7 @@ ztest_reguid(ztest_ds_t *zd, uint64_t id)
 	uint64_t orig, load;
 	int error;
 
+	printf("ztest_reguid entered\n");
 	orig = spa_guid(spa);
 	load = spa_load_guid(spa);
 
@@ -5623,6 +5720,7 @@ ztest_spa_rename(ztest_ds_t *zd, uint64_t id)
 	char *oldname, *newname;
 	spa_t *spa;
 
+	printf("ztest_spa_rename entered\n");
 	(void) rw_wrlock(&ztest_name_lock);
 
 	oldname = ztest_opts.zo_pool;
@@ -5638,12 +5736,12 @@ ztest_spa_rename(ztest_ds_t *zd, uint64_t id)
 	/*
 	 * Try to open it under the old name, which shouldn't exist
 	 */
-	VERIFY3U(ENOENT, ==, spa_open(oldname, &spa, FTAG));
+	VERIFY3U(ENOENT, ==, do_spa_open(oldname, &spa, FTAG));
 
 	/*
 	 * Open it under the new name and make sure it's still the same spa_t.
 	 */
-	VERIFY3U(0, ==, spa_open(newname, &spa, FTAG));
+	VERIFY3U(0, ==, do_spa_open(newname, &spa, FTAG));
 
 	ASSERT(spa == ztest_spa);
 	spa_close(spa, FTAG);
@@ -5656,7 +5754,7 @@ ztest_spa_rename(ztest_ds_t *zd, uint64_t id)
 	/*
 	 * Make sure it can still be opened
 	 */
-	VERIFY3U(0, ==, spa_open(oldname, &spa, FTAG));
+	VERIFY3U(0, ==, do_spa_open(oldname, &spa, FTAG));
 
 	ASSERT(spa == ztest_spa);
 	spa_close(spa, FTAG);
@@ -5671,6 +5769,7 @@ ztest_fletcher(ztest_ds_t *zd, uint64_t id)
 {
 	hrtime_t end = gethrtime() + NANOSEC;
 
+	printf("ztest_fletcher entered\n");
 	while (gethrtime() <= end) {
 		int run_count = 100;
 		void *buf;
@@ -5717,6 +5816,7 @@ ztest_fletcher_incr(ztest_ds_t *zd, uint64_t id)
 	zio_cksum_t zc_ref;
 	zio_cksum_t zc_ref_bswap;
 
+	printf("ztest_fletcher_incr entered\n");
 	hrtime_t end = gethrtime() + NANOSEC;
 
 	while (gethrtime() <= end) {
@@ -5787,6 +5887,7 @@ static int
 ztest_check_path(char *path)
 {
 	struct stat s;
+	printf("ztest_check_path entered\n");
 	/* return true on success */
 	return (!stat(path, &s));
 }
@@ -5795,6 +5896,7 @@ static void
 ztest_get_zdb_bin(char *bin, int len)
 {
 	char *zdb_path;
+	printf("ztest_check_path entered\n");
 	/*
 	 * Try to use ZDB_PATH and in-tree zdb path. If not successful, just
 	 * let popen to search through PATH.
@@ -5831,6 +5933,7 @@ ztest_run_zdb(char *pool)
 	const int len = MAXPATHLEN + MAXNAMELEN + 20;
 	FILE *fp;
 
+	printf("ztest_run_zdb entered\n");
 	bin = umem_alloc(len, UMEM_NOFAIL);
 	zdb = umem_alloc(len, UMEM_NOFAIL);
 	zbuf = umem_alloc(1024, UMEM_NOFAIL);
@@ -5875,6 +5978,7 @@ ztest_walk_pool_directory(char *header)
 {
 	spa_t *spa = NULL;
 
+	printf("ztest_walk_pool_directory entered\n");
 	if (ztest_opts.zo_verbose >= 6)
 		(void) printf("%s\n", header);
 
@@ -5893,6 +5997,7 @@ ztest_spa_import_export(char *oldname, char *newname)
 	spa_t *spa;
 	int error;
 
+	printf("ztest_spa_import_export entered\n");
 	if (ztest_opts.zo_verbose >= 4) {
 		(void) printf("import/export: old = %s, new = %s\n",
 		    oldname, newname);
@@ -5906,7 +6011,7 @@ ztest_spa_import_export(char *oldname, char *newname)
 	/*
 	 * Get the pool's configuration and guid.
 	 */
-	VERIFY3U(0, ==, spa_open(oldname, &spa, FTAG));
+	VERIFY3U(0, ==, do_spa_open(oldname, &spa, FTAG));
 
 	/*
 	 * Kick off a scrub to tickle scrub/export races.
@@ -5958,12 +6063,12 @@ ztest_spa_import_export(char *oldname, char *newname)
 	/*
 	 * Verify that the pool is no longer visible under the old name.
 	 */
-	VERIFY3U(ENOENT, ==, spa_open(oldname, &spa, FTAG));
+	VERIFY3U(ENOENT, ==, do_spa_open(oldname, &spa, FTAG));
 
 	/*
 	 * Verify that we can open and close the pool using the new name.
 	 */
-	VERIFY3U(0, ==, spa_open(newname, &spa, FTAG));
+	VERIFY3U(0, ==, do_spa_open(newname, &spa, FTAG));
 	ASSERT(pool_guid == spa_guid(spa));
 	spa_close(spa, FTAG);
 
@@ -5973,6 +6078,7 @@ ztest_spa_import_export(char *oldname, char *newname)
 static void
 ztest_resume(spa_t *spa)
 {
+	printf("ztest_resume entered\n");
 	if (spa_suspended(spa) && ztest_opts.zo_verbose >= 6)
 		(void) printf("resuming from suspended state\n");
 	spa_vdev_state_enter(spa, SCL_NONE);
@@ -5985,6 +6091,7 @@ static void *
 ztest_resume_thread(void *arg)
 {
 	spa_t *spa = arg;
+	printf("ztest_resume_thread entered\n");
 
 	while (!ztest_exiting) {
 		if (spa_suspended(spa))
@@ -6027,6 +6134,7 @@ ztest_execute(int test, ztest_info_t *zi, uint64_t id)
 	hrtime_t functime = gethrtime();
 	int i;
 
+	printf("ztest_execute entered\n");
 	for (i = 0; i < zi->zi_iters; i++)
 		zi->zi_func(zd, id);
 
@@ -6096,6 +6204,7 @@ ztest_dataset_destroy(int d)
 	char name[ZFS_MAX_DATASET_NAME_LEN];
 	int t;
 
+	printf("ztest_dataset_destroy entered\n");
 	ztest_dataset_name(name, ztest_opts.zo_pool, d);
 
 	if (ztest_opts.zo_verbose >= 3)
@@ -6145,6 +6254,7 @@ ztest_dataset_open(int d)
 	char name[ZFS_MAX_DATASET_NAME_LEN];
 	int error;
 
+	printf("ztest_dataset_open entered\n");
 	ztest_dataset_name(name, ztest_opts.zo_pool, d);
 
 	(void) rw_rdlock(&ztest_name_lock);
@@ -6197,6 +6307,7 @@ ztest_dataset_close(int d)
 {
 	ztest_ds_t *zd = &ztest_ds[d];
 
+	printf("ztest_dataset_close entered\n");
 	zil_close(zd->zd_zilog);
 	dmu_objset_disown(zd->zd_os, zd);
 
@@ -6244,7 +6355,7 @@ ztest_run(ztest_shared_t *zs)
 	 * Open our pool.
 	 */
 	kernel_init(FREAD | FWRITE);
-	VERIFY0(spa_open(ztest_opts.zo_pool, &spa, FTAG));
+	VERIFY0(do_spa_open(ztest_opts.zo_pool, &spa, FTAG));
 	spa->spa_debug = B_TRUE;
 	metaslab_preload_limit = ztest_random(20) + 1;
 	ztest_spa = spa;
@@ -6408,11 +6519,12 @@ ztest_freeze(void)
 	spa_t *spa;
 	int numloops = 0;
 
+	printf("ztest_freeze entered\n");
 	if (ztest_opts.zo_verbose >= 3)
 		(void) printf("testing spa_freeze()...\n");
 
 	kernel_init(FREAD | FWRITE);
-	VERIFY3U(0, ==, spa_open(ztest_opts.zo_pool, &spa, FTAG));
+	VERIFY3U(0, ==, do_spa_open(ztest_opts.zo_pool, &spa, FTAG));
 	VERIFY3U(0, ==, ztest_dataset_open(0));
 	spa->spa_debug = B_TRUE;
 	ztest_spa = spa;
@@ -6480,7 +6592,7 @@ ztest_freeze(void)
 	 * Open and close the pool and dataset to induce log replay.
 	 */
 	kernel_init(FREAD | FWRITE);
-	VERIFY3U(0, ==, spa_open(ztest_opts.zo_pool, &spa, FTAG));
+	VERIFY3U(0, ==, do_spa_open(ztest_opts.zo_pool, &spa, FTAG));
 	ASSERT(spa_freeze_txg(spa) == UINT64_MAX);
 	VERIFY3U(0, ==, ztest_dataset_open(0));
 	ztest_dataset_close(0);
@@ -6543,6 +6655,7 @@ ztest_init(ztest_shared_t *zs)
 	nvlist_t *nvroot, *props;
 	int i;
 
+	printf("ztest_init entered\n");
 	mutex_init(&ztest_vdev_lock, NULL, MUTEX_DEFAULT, NULL);
 	VERIFY(rwlock_init(&ztest_name_lock, USYNC_THREAD, NULL) == 0);
 
@@ -6569,7 +6682,7 @@ ztest_init(ztest_shared_t *zs)
 	nvlist_free(nvroot);
 	nvlist_free(props);
 
-	VERIFY3U(0, ==, spa_open(ztest_opts.zo_pool, &spa, FTAG));
+	VERIFY3U(0, ==, do_spa_open(ztest_opts.zo_pool, &spa, FTAG));
 	zs->zs_metaslab_sz =
 	    1ULL << spa->spa_root_vdev->vdev_child[0]->vdev_ms_shift;
 	spa_close(spa, FTAG);
@@ -6737,6 +6850,7 @@ static void
 ztest_run_init(void)
 {
 	int i;
+	printf("ztest_run_init entered\n");
 
 	ztest_shared_t *zs = ztest_shared;
 
@@ -6961,7 +7075,7 @@ main(int argc, char **argv)
 		 * instead of 'ztest'.  Do a blind rename in case this happened.
 		 */
 		kernel_init(FREAD);
-		if (spa_open(ztest_opts.zo_pool, &spa, FTAG) == 0) {
+		if (do_spa_open(ztest_opts.zo_pool, &spa, FTAG) == 0) {
 			spa_close(spa, FTAG);
 		} else {
 			char tmpname[ZFS_MAX_DATASET_NAME_LEN];
