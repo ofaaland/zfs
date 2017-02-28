@@ -33,6 +33,10 @@
 # Common paths
 bindir=@bindir@
 sbindir=@sbindir@
+etcdir=@sysconfdir@
+
+# ZFS Directories
+export ZPOOLSCRIPTDIR=${ZPOOLSCRIPTSDIR:-${etcdir}/zfs/zpool.d}
 
 # ZFS Commands
 export ZDB=${ZDB:-${sbindir}/zdb}

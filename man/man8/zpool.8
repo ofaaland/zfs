@@ -96,7 +96,7 @@ zpool \- configures ZFS storage pools
 
 .LP
 .nf
-\fB\fBzpool iostat\fR [\fB-c\fR \fBCMD\fR] [\fB-T\fR \fBd\fR | \fBu\fR] [\fB-ghHLpPvy\fR] [\fB-lq\fR]|[\fB-r\fR|-\fBw\fR]]
+\fB\fBzpool iostat\fR [[[\fB-c\fR \fBSCRIPT\fR] [\fB-lq\fR]] | \fB-rw\fR] [\fB-T\fR \fBd\fR | \fBu\fR] [\fB-ghHLpPvy\fR]
      [[\fIpool\fR ...]|[\fIpool vdev\fR ...]|[\fIvdev\fR ...]] [\fIinterval\fR[\fIcount\fR]]\fR
 
 .fi
@@ -159,7 +159,7 @@ zpool \- configures ZFS storage pools
 
 .LP
 .nf
-\fBzpool status\fR [\fB-c\fR \fBCMD\fR] [\fB-gLPvxD\fR] [\fB-T\fR d | u] [\fIpool\fR] ... [\fIinterval\fR [\fIcount\fR]]
+\fBzpool status\fR [\fB-c\fR \fBSCRIPT\fR] [\fB-gLPvxD\fR] [\fB-T\fR d | u] [\fIpool\fR] ... [\fIinterval\fR [\fIcount\fR]]
 .fi
 
 .LP
@@ -1523,7 +1523,7 @@ Scan using the default search path, the libblkid cache will not be consulted.  A
 .sp
 .ne 2
 .na
-\fB\fBzpool iostat\fR [\fB-c\fR \fBCMD\fR] [\fB-T\fR \fBd\fR | \fBu\fR] [\fB-ghHLpPvy\fR] [[\fB-lq\fR]|[\fB-r\fR|\fB-w\fR]] [[\fIpool\fR ...]|[\fIpool vdev\fR ...]|[\fIvdev\fR ...]] [\fIinterval\fR[\fIcount\fR]]\fR
+\fB\fBzpool iostat\fR [[[\fB-c\fR \fBSCRIPT\fR] [\fB-lq\fR]] | \fB-rw\fR] [\fB-T\fR \fBd\fR | \fBu\fR] [\fB-ghHLpPvy\fR] [[\fIpool\fR ...]|[\fIpool vdev\fR ...]|[\fIvdev\fR ...]] [\fIinterval\fR[\fIcount\fR]]\fR
 
 .ad
 .sp .6
@@ -1542,14 +1542,29 @@ base 1024.  To get the raw values, use the \fB-p\fR flag.
 .sp
 .ne 2
 .na
-\fB\fB-c\fR \fBCMD\fR
+\fB\fB-c\fR \fBSCRIPT[,SCRIPT2,...]\fR
 .ad
 .RS 12n
-Run a command on each vdev and include first line of output
+Run a script (or scripts) on each vdev and include the output in zpool iostat
 .sp
-The \fB-c\fR option allows you to run an arbitrary command on each vdev and
-display the first line of output in zpool iostat.  The following environment
-vars are set before running each command:
+The \fB-c\fR option allows you to run script(s) each vdev and display the
+output in zpool iostat.  For security reasons, only scripts in the
+/<etc>/zfs/zpool.d directory can be run, and only as an unprivileged user.
+If your script requires you to use a privileged command (like smartctl)
+then it's recommended you allow the user access to it in /etc/sudoers.
+For example, to allow user "zfsuser" access to "smartctl -a", add the following
+to /etc/sudoers:
+
+zfsuser ALL=NOPASSWD: /usr/sbin/smartctl -a /dev/sd[a-z]*, NOEXEC: /usr/sbin/smartctl -a /dev/sd[a-z]*`
+
+Script output should be in the form of "name=value".  The column name is
+set to "name" and the value is set to "value".  Multiple lines can be used to
+output multiple columns.  The first line of output not in the "name=value"
+format is displayed without a column title, and no more output after that is
+displayed.  This can be useful for printing error messages.  Blank or NULL
+values are printed as a '-' to make output awk-able.
+
+The following environment variables are set before running each script:
 .sp
 \fB$VDEV_PATH\fR: Full path to the vdev.
 .LP
@@ -2103,7 +2118,7 @@ Sets the specified property for \fInewpool\fR. See the “Properties” section 
 .sp
 .ne 2
 .na
-\fBzpool status\fR [\fB-c\fR \fBCMD\fR] [\fB-gLPvxD\fR] [\fB-T\fR d | u] [\fIpool\fR] ... [\fIinterval\fR [\fIcount\fR]]
+\fBzpool status\fR [\fB-c\fR \fBSCRIPT1[,SCRIPT2,...] \fR] [\fB-gLPvxD\fR] [\fB-T\fR d | u] [\fIpool\fR] ... [\fIinterval\fR [\fIcount\fR]]
 .ad
 .sp .6
 .RS 4n
@@ -2114,14 +2129,29 @@ If a scrub or resilver is in progress, this command reports the percentage done 
 .sp
 .ne 2
 .na
-\fB\fB-c\fR \fBCMD\fR
+\fB\fB-c\fR \fBSCRIPT[,SCRIPT2,...]\fR
 .ad
 .RS 12n
-Run a command on each vdev and include first line of output
+Run a script (or scripts) on each vdev and include the output in zpool status
 .sp
-The \fB-c\fR option allows you to run an arbitrary command on each vdev and
-display the first line of output in zpool iostat.  The following environment
-vars are set before running each command:
+The \fB-c\fR option allows you to run script(s) each vdev and display the
+output in zpool status.  For security reasons, only scripts in the
+/<etc>/zfs/zpool.d directory can be run, and only as an unprivileged user.
+If your script requires you to use a privileged command (like smartctl)
+then it's recommended you allow the user access to it in /etc/sudoers.
+For example, to allow user "zfsuser" access to "smartctl -a", add the following
+to /etc/sudoers:
+
+zfsuser ALL=NOPASSWD: /usr/sbin/smartctl -a /dev/sd[a-z]*, NOEXEC: /usr/sbin/smartctl -a /dev/sd[a-z]*`
+
+Script output should be in the form of "name=value".  The column name is
+set to "name" and the value is set to "value".  Multiple lines can be used to
+output multiple columns.  The first line of output not in the "name=value"
+format is displayed without a column title, and no more output after that is
+displayed.  This can be useful for printing error messages.  Blank or NULL
+values are printed as a '-' to make output awk-able.
+
+The following environment variables are set before running each command:
 .sp
 \fB$VDEV_PATH\fR: Full path to the vdev.
 .LP
@@ -2578,6 +2608,18 @@ mypool      ONLINE       0     0     0
   mirror-0  ONLINE       0     0     0
     mpatha  ONLINE       0     0     0  I am /dev/mapper/mpatha, /dev/sdc
     sdb     ONLINE       0     0     0  I am /dev/sdb1, /dev/sdb
+.fi
+.in -2
+
+.sp
+.in +2
+.nf
+# \fBzpool status -c \[aq]echo path=$VDEV_PATH; echo size=$(lsblk -n --nodeps -o size $VDEV_PATH)\[aq]\fR
+NAME        STATE     READ WRITE CKSUM      path  size
+mypool      ONLINE       0     0     0
+  mirror-0  ONLINE       0     0     0
+    sdb     ONLINE       0     0     0  /dev/sdb    1G
+    sdc     ONLINE       0     0     0  /dev/sdc    1G
 .fi
 .in -2
 

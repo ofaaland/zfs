@@ -1,0 +1,45 @@
+#!/bin/sh
+#
+# Display most relevant iostat bandwidth/latency numbers.  The output is
+# dependent on the name of the script/symlink used to call it.
+#
+# iostat:	Display iostat values since boot (summary page)
+# iostat1:	Do a single 1-second sample and display values
+#
+
+script=$(basename $0)
+if [ "$script" == "iostat1" ] ; then
+	# Do a single one-second sample
+	extra="1 1"
+	
+	# Don't show summary stats
+	y="-y"
+fi
+
+# Do a one second sample
+out="$(iostat $y -k -x $VDEV_UPATH $extra)"
+
+# Sample output (we want the last two lines):
+#
+# Linux 2.6.32-642.13.1.el6.x86_64 (centos68) 	03/09/2017 	_x86_64_	(6 CPU)
+#
+# avg-cpu:  %user   %nice %system %iowait  %steal   %idle
+#           0.00    0.00    0.00    0.00    0.00  100.00
+#
+# Device:         rrqm/s   wrqm/s     r/s     w/s    rkB/s    wkB/s avgrq-sz avgqu-sz   await r_await w_await  svctm  %util
+# sdb               0.00     0.00    0.00    0.00     0.00     0.00     0.00     0.00    0.00    0.00    0.00   0.00   0.00
+#
+
+# Get the column names
+cols=($(echo "$out" | grep Device))
+
+# Get the values
+vals=($(echo "$out" | grep -A1 Device | tail -n 1))
+
+for ((i = 0; i < ${#cols[@]}; i++)) ; do
+	# Skip the first column since it's just the device name
+	if [ "${cols[$i]}" == "Device:" ] ; then
+		continue
+	fi
+	echo "${cols[$i]}=${vals[$i]}"
+done

@@ -1,0 +1,2 @@
+# Print the underlying path for a device
+echo upath=$VDEV_UPATH

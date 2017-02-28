@@ -1,0 +1,63 @@
+#!/bin/sh
+#
+# Print some common lsblk values
+#
+# Any (lowercased) name symlinked to the lsblk script will be passed to lsblk
+# as one of its --output names.  Here's a partial list of --output names
+# from the lsblk binary:
+#
+# Available columns (for --output):
+#        NAME  device name
+#       KNAME  internal kernel device name
+#     MAJ:MIN  major:minor device number
+#      FSTYPE  filesystem type
+#  MOUNTPOINT  where the device is mounted
+#       LABEL  filesystem LABEL
+#        UUID  filesystem UUID
+#          RA  read-ahead of the device
+#          RO  read-only device
+#          RM  removable device
+#       MODEL  device identifier
+#        SIZE  size of the device
+#       STATE  state of the device
+#       OWNER  user name
+#       GROUP  group name
+#        MODE  device node permissions
+#   ALIGNMENT  alignment offset
+#      MIN-IO  minimum I/O size
+#      OPT-IO  optimal I/O size
+#     PHY-SEC  physical sector size
+#     LOG-SEC  logical sector size
+#        ROTA  rotational device
+#       SCHED  I/O scheduler name
+#     RQ-SIZE  request queue size
+#        TYPE  device type
+#    DISC-ALN  discard alignment offset
+#   DISC-GRAN  discard granularity
+#    DISC-MAX  discard max bytes
+#   DISC-ZERO  discard zeroes data
+#
+# If the script is run as just 'lsblk' then print out disk size, vendor,
+# model number and serial number.
+#
+
+script=$(basename $0)
+if [ "$script" == "lsblk" ] ; then
+	list="size vendor model serial"
+else
+	list=$(echo "$script" | tr '[:upper:]' '[:lower:]')
+fi
+
+# Older versions of lsblk don't support all these values (like SERIAL).
+for i in $list ; do
+	if val=$(lsblk -dl -n -o $i $VDEV_UPATH 2>/dev/null) ; then
+		# Remove leading/trailing whitespace from value
+		val=$(echo $val | sed -e 's/^[[:space:]]*//' \
+		     -e 's/[[:space:]]*$//')
+		echo "$i=$val"
+	else
+		# Unsupported value.  Print a dash so at least the output is
+		# Always consistent.
+		echo "$i=-"
+	fi
+done

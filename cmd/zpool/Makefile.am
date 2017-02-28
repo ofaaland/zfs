@@ -20,3 +20,52 @@ zpool_LDADD = \
 	$(top_builddir)/lib/libzfs/libzfs.la \
 	$(top_builddir)/lib/libzfs_core/libzfs_core.la \
 	-lm $(LIBBLKID)
+
+zpoolconfdir = $(sysconfdir)/zfs/zpool.d
+zpoolexecdir = $(libexecdir)/zfs/zpool.d
+
+EXTRA_DIST = zpool.d/README
+
+dist_zpoolexec_SCRIPTS = \
+	zpool.d/enc \
+	zpool.d/encdev \
+	zpool.d/fault_led \
+	zpool.d/iostat \
+	zpool.d/iostat1 \
+	zpool.d/label \
+	zpool.d/locate_led \
+	zpool.d/lsblk \
+	zpool.d/model \
+	zpool.d/serial \
+	zpool.d/ses \
+	zpool.d/size \
+	zpool.d/slaves \
+	zpool.d/slot \
+	zpool.d/upath \
+	zpool.d/vendor
+
+zpoolconfdefaults = \
+	enc \
+	encdev \
+	fault_led \
+	iostat \
+	iostat1 \
+	label \
+	locate_led \
+	lsblk \
+	model \
+	serial \
+	ses \
+	size \
+	slaves \
+	slot \
+	upath \
+	vendor
+
+install-data-hook:
+	$(MKDIR_P) "$(DESTDIR)$(zpoolconfdir)"
+	for f in $(zpoolconfdefaults); do \
+	  test -f "$(DESTDIR)$(zpoolconfdir)/$${f}" -o \
+	       -L "$(DESTDIR)$(zpoolconfdir)/$${f}" || \
+	    ln -s "$(zpoolexecdir)/$${f}" "$(DESTDIR)$(zpoolconfdir)"; \
+	done

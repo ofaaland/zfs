@@ -36,6 +36,7 @@
 
 #include <libzfs.h>
 #include <sys/zfs_context.h>
+#include <sys/wait.h>
 
 #include "zpool_util.h"
 
@@ -321,41 +322,255 @@ for_each_vdev(zpool_handle_t *zhp, pool_vdev_iter_f func, void *data)
 	return (for_each_vdev_cb(zhp, nvroot, func, data));
 }
 
+/*
+ * Process the vcdl->vdev_cmd_data[] array to figure out all the unique column
+ * names and their widths.  When this function is done, vcdl->uniq_cols,
+ * vcdl->uniq_cols_cnt, and vcdl->uniq_cols_width will be filled in.
+ */
+static void process_unique_cmd_columns(vdev_cmd_data_list_t *vcdl)
+{
+	char **uniq_cols = NULL, **tmp = NULL;
+	int *uniq_cols_width;
+	vdev_cmd_data_t *data;
+	int cnt = 0;
+	int k;
+	/* For each vdev */
+	for (int i = 0; i < vcdl->count; i++) {
+		data = &vcdl->data[i];
+		/* For each column the vdev reported */
+		for (int j = 0; j < data->cols_cnt; j++) {
+			/* Is this column in our list of uniq col names? */
+			for (k = 0; k < cnt; k++) {
+				if (strcmp(data->cols[j], uniq_cols[k]) == 0)
+					break; /* yes it is */
+
+			}
+			if (k == cnt) {
+				/* No entry for column, add to list */
+				tmp = realloc(uniq_cols, sizeof (*uniq_cols) *
+				    (cnt + 1));
+				if (tmp == NULL)
+					break; /* Nothing we can do... */
+				uniq_cols = tmp;
+				uniq_cols[cnt] = data->cols[j];
+				cnt++;
+			}
+		}
+	}
+
+	/*
+	 * We now have a list of all the uniq col names.  Figure out the max
+	 * width of each column by looking at the column name and all its values
+	 */
+	uniq_cols_width = safe_malloc(sizeof (*uniq_cols_width) * cnt);
+	for (int i = 0; i < cnt; i++) {
+		/* Start off with the column title's width */
+		uniq_cols_width[i] = strlen(uniq_cols[i]);
+		/* For each vdev */
+		for (int j = 0; j < vcdl->count; j++) {
+			/* For each of the vdev's values in a column */
+			data = &vcdl->data[j];
+			for (k = 0; k < data->cols_cnt; k++) {
+				/* Does this vdev have a value for this col? */
+				if (strcmp(data->cols[k], uniq_cols[i]) == 0) {
+					/* Is the value width larger? */
+					uniq_cols_width[i] =
+					    MAX(uniq_cols_width[i],
+					    strlen(data->lines[k]));
+				}
+			}
+		}
+	}
+
+	vcdl->uniq_cols = uniq_cols;
+	vcdl->uniq_cols_cnt = cnt;
+	vcdl->uniq_cols_width = uniq_cols_width;
+}
+
+
+/*
+ * Process a line of command output
+ *
+ * When running 'zpool iostat|status -c' the lines of output can either be
+ * in the form of:
+ *
+ *	column_name=value
+ *
+ * Or just:
+ *
+ * 	value
+ *
+ * Process the column_name (if any) and value.
+ *
+ * Returns 1 if line was processed, and there are more lines can still be
+ * processed.
+ *
+ * Returns 0 if this was the last line to process, or error.
+ */
+static int
+vdev_process_cmd_output(vdev_cmd_data_t *data, char *line)
+{
+	char *col = NULL;
+	char *val = line;
+	char *equals;
+	char **tmp;
+
+	if (line == NULL)
+		return (0);
+
+	equals = strchr(line, '=');
+
+	if (equals) {
+		/*
+		 * We have a 'column=value' type line.  Split it into the
+		 * column and value strings by turning the '=' into a '\0'.
+		 */
+		*equals = '\0';
+		col = line;
+		val = equals + 1;
+	} else {
+		val = line;
+	}
+
+	/* Do we already have a column by this name?  If so, skip it. */
+	if (col != NULL) {
+		for (int i = 0; i < data->cols_cnt; i++) {
+			if (strcmp(col, data->cols[i]) == 0)
+				return (1); /* Duplicate, skip */
+		}
+	}
+
+	if (val != NULL) {
+		tmp = realloc(data->lines,
+		    (data->lines_cnt + 1) * sizeof (*data->lines));
+
+		if (tmp == NULL)
+			return (0);
+
+		data->lines = tmp;
+		data->lines[data->lines_cnt] = strdup(val);
+		data->lines_cnt++;
+	}
+
+	if (col != NULL) {
+		tmp = realloc(data->cols,
+		    (data->cols_cnt + 1) * sizeof (*data->cols));
+
+		if (tmp == NULL)
+			return (0);
+
+		data->cols = tmp;
+		data->cols[data->cols_cnt] = strdup(col);
+		data->cols_cnt++;
+	}
+
+	if (val != NULL && col == NULL)
+		return (0);
+
+	return (1);
+}
+
+
+/*
+ * Run the cmd and store results in *data.
+ */
+static void
+vdev_run_cmd(vdev_cmd_data_t *data, char *cmd)
+{
+	char *pos = NULL;
+	FILE *fp;
+	size_t len = 0;
+	char *argv[2] = {cmd, 0};
+	char *env[5] = {0}; /* Four env vars + NULL */
+	char *line;
+	int link[2];
+	pid_t pid;
+	int status;
+
+	if (pipe(link) == -1)
+		return;
+
+	if ((pid = fork()) == -1)
+		return; /* Couldn't fork */
+
+	if (pid == 0) {
+		/* Child process */
+		dup2(link[1], STDOUT_FILENO);
+		close(link[0]);
+		close(link[1]);
+		if (asprintf(&env[0], "PATH=/bin:/sbin:/usr/bin:/usr/sbin")
+		    == -1)
+		goto end;
+
+		if (asprintf(&env[1], "VDEV_PATH=%s",
+		    data->path ? data->path : "") == -1)
+			goto end;
+
+		if (asprintf(&env[2], "VDEV_UPATH=%s", data->upath ?
+		    data->upath : "") == -1)
+			goto end;
+
+		if (asprintf(&env[3], "VDEV_ENC_SYSFS_PATH=%s",
+		    data->vdev_enc_sysfs_path ?
+		    data->vdev_enc_sysfs_path : "") == -1)
+			goto end;
+
+		if (env[0] != NULL && env[1] != NULL && env[2] != NULL &&
+		    env[3] != NULL) {
+			execvpe(cmd, argv, env);
+		}
+	} else {
+		wait(&status);
+		close(link[1]);
+		fp = fdopen(link[0], "r");
+		if (fp == NULL)
+			return;
+
+		line = NULL;
+		/* Read back results from child process */
+		do {
+			if (getline(&line, &len, fp) != -1) {
+				if ((pos = strchr(line, '\n')) != NULL)
+					*pos = '\0';
+			} else {
+				/* We read all the lines, or errored out */
+				break;
+			}
+		} while (vdev_process_cmd_output(data, line));
+		free(line);
+		fclose(fp);
+	}
+end:
+	for (int i = 0; i < ARRAY_SIZE(env); i++)
+		if (env[i] != NULL)
+			free(env[i]);
+
+}
+
 /* Thread function run for each vdev */
 static void
 vdev_run_cmd_thread(void *cb_cmd_data)
 {
 	vdev_cmd_data_t *data = cb_cmd_data;
-	char *pos = NULL;
-	FILE *fp;
-	size_t len = 0;
-	char cmd[_POSIX_ARG_MAX];
+	const char *sep = ",";
+	char *cmd = NULL, *cmddup, *rest;
+	char fullpath[MAXPATHLEN];
 
-	/* Set our VDEV_PATH and VDEV_UPATH env vars and run command */
-	if (snprintf(cmd, sizeof (cmd), "VDEV_PATH=%s && VDEV_UPATH=\"%s\" && "
-	    "VDEV_ENC_SYSFS_PATH=\"%s\" && %s", data->path ? data->path : "",
-	    data->upath ? data->upath : "",
-	    data->vdev_enc_sysfs_path ? data->vdev_enc_sysfs_path : "",
-	    data->cmd) >= sizeof (cmd)) {
-		/* Our string was truncated */
-		return;
-	}
-
-	fp = popen(cmd, "r");
-	if (fp == NULL)
+	cmddup = strdup(data->cmd);
+	if (cmddup == NULL)
 		return;
 
-	data->line = NULL;
+	rest = cmddup;
+	while ((cmd = strtok_r(rest, sep, &rest))) {
+		if (snprintf(fullpath, sizeof (fullpath), "%s/%s",
+		    ZPOOL_SCRIPTS_DIR, cmd) == -1)
+			continue;
 
-	/* Save the first line of output from the command */
-	if (getline(&data->line, &len, fp) != -1) {
-		/* Success.  Remove newline from the end, if necessary. */
-		if ((pos = strchr(data->line, '\n')) != NULL)
-			*pos = '\0';
-	} else {
-		data->line = NULL;
+		/* Does the script exist in our zpool scripts dir? */
+		if (access(fullpath, X_OK) == 0)
+			vdev_run_cmd(data, fullpath);
 	}
-	pclose(fp);
+	free(cmddup);
 }
 
 /* For each vdev in the pool run a command */
@@ -412,6 +627,8 @@ for_each_vdev_run_cb(zpool_handle_t *zhp, nvlist_t *nv, void *cb_vcdl)
 	data->path = strdup(path);
 	data->upath = zfs_get_underlying_path(path);
 	data->cmd = vcdl->cmd;
+	data->lines = data->cols = NULL;
+	data->lines_cnt = data->cols_cnt = 0;
 	if (vdev_enc_sysfs_path)
 		data->vdev_enc_sysfs_path = strdup(vdev_enc_sysfs_path);
 	else
@@ -463,6 +680,7 @@ all_pools_for_each_vdev_run_vcdl(vdev_cmd_data_list_t *vcdl)
 	taskq_wait(t);
 	taskq_destroy(t);
 	thread_fini();
+
 }
 
 /*
@@ -495,6 +713,13 @@ all_pools_for_each_vdev_run(int argc, char **argv, char *cmd,
 	/* Run command on all vdevs in all pools */
 	all_pools_for_each_vdev_run_vcdl(vcdl);
 
+	/*
+	 * vcdl->data[] now contains all the column names and values for each
+	 * vdev.  We need to process that into a master list of unique column
+	 * names, and figure out the width of each column.
+	 */
+	process_unique_cmd_columns(vcdl);
+
 	return (vcdl);
 }
 
@@ -504,12 +729,23 @@ all_pools_for_each_vdev_run(int argc, char **argv, char *cmd,
 void
 free_vdev_cmd_data_list(vdev_cmd_data_list_t *vcdl)
 {
-	int i;
-	for (i = 0; i < vcdl->count; i++) {
+	free(vcdl->uniq_cols);
+	free(vcdl->uniq_cols_width);
+
+	for (int i = 0; i < vcdl->count; i++) {
 		free(vcdl->data[i].path);
 		free(vcdl->data[i].pool);
 		free(vcdl->data[i].upath);
-		free(vcdl->data[i].line);
+
+		for (int j = 0; j < vcdl->data[i].lines_cnt; j++)
+			free(vcdl->data[i].lines[j]);
+
+		free(vcdl->data[i].lines);
+
+		for (int j = 0; j < vcdl->data[i].cols_cnt; j++)
+			free(vcdl->data[i].cols[j]);
+
+		free(vcdl->data[i].cols);
 		free(vcdl->data[i].vdev_enc_sysfs_path);
 	}
 	free(vcdl->data);
