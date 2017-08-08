@@ -3,7 +3,7 @@ obj = @abs_builddir@
 
 MODULE := zunicode
 
-EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS) @KERNELCPPFLAGS@
+EXTRA_CFLAGS = $(ZFS_MODULE_CFLAGS) @KERNELCPPFLAGS@ -std=gnu99
 
 obj-$(CONFIG_ZFS) := $(MODULE).o
 

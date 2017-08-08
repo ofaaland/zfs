@@ -12,7 +12,7 @@ if [ -f "${basedir}/../${SCRIPT_CONFIG}" ]; then
 . "${basedir}/../${SCRIPT_CONFIG}"
 else
 KERNEL_MODULES=(zlib_deflate zlib_inflate)
-MODULES=(spl splat zavl znvpair zunicode zcommon icp zfs)
+MODULES=(spl zavl znvpair zunicode zcommon icp zfs)
 fi
 
 PROG="<define PROG>"
@@ -252,7 +252,7 @@ unload_modules() {
 		local USE_COUNT=`${LSMOD} |
 				egrep "^${NAME} "| ${AWK} '{print $3}'`
 
-		if [ "${USE_COUNT}" = 0 ] ; then
+		if [ -n "${USE_COUNT}" -a "${USE_COUNT}" = 0 ] ; then
 			unload_module ${MOD} || return 1
 		fi
 	done
