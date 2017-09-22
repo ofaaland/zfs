@@ -61,6 +61,8 @@ dnode_stats_t dnode_stats = {
 	{ "dnode_alloc_next_chunk",		KSTAT_DATA_UINT64 },
 	{ "dnode_alloc_race",			KSTAT_DATA_UINT64 },
 	{ "dnode_alloc_next_block",		KSTAT_DATA_UINT64 },
+	{ "dnode_shrink",			KSTAT_DATA_UINT64 },
+	{ "dnode_expand",			KSTAT_DATA_UINT64 },
 	{ "dnode_move_invalid",			KSTAT_DATA_UINT64 },
 	{ "dnode_move_recheck1",		KSTAT_DATA_UINT64 },
 	{ "dnode_move_recheck2",		KSTAT_DATA_UINT64 },

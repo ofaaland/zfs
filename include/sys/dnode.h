@@ -537,6 +537,12 @@ typedef struct dnode_stats {
 	 */
 	kstat_named_t dnode_alloc_next_block;
 	/*
+	 * Number of times dnode must be shrunk or expanded (in terms of slots)
+	 * to accomodate a receive stream.
+	 */
+	kstat_named_t dnode_shrink;
+	kstat_named_t dnode_expand;
+	/*
 	 * Statistics for tracking dnodes which have been moved.
 	 */
 	kstat_named_t dnode_move_invalid;

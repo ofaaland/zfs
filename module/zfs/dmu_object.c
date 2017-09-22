@@ -269,6 +269,12 @@ dmu_object_reclaim_dnsize(objset_t *os, uint64_t object, dmu_object_type_t ot,
 	if (err)
 		return (err);
 
+	if (dn_slots > dn->dn_num_slots) {
+		DNODE_STAT_BUMP(dnode_expand);
+	} else if (dn_slots < dn->dn_num_slots) {
+		DNODE_STAT_BUMP(dnode_shrink);
+	}
+
 	dnode_reallocate(dn, ot, blocksize, bonustype, bonuslen, dn_slots, tx);
 
 	dnode_rele(dn, FTAG);
