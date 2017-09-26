@@ -923,7 +923,7 @@ zap_lookup_impl(zap_t *zap, const char *name,
 	} else {
 		mze = mze_find(zn);
 		if (mze == NULL) {
-			err = SET_ERROR(ENOENT);
+			err = ENOENT; //SET_ERROR(ENOENT);
 		} else {
 			if (num_integers < 1) {
 				err = SET_ERROR(EOVERFLOW);

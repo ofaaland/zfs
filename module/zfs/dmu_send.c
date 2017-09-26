@@ -2435,6 +2435,10 @@ receive_object(struct receive_writer_arg *rwa, struct drr_object *drro,
 		return (SET_ERROR(EINVAL));
 	object = err == 0 ? drro->drr_object : DMU_NEW_OBJECT;
 
+	dprintf("receiving object %llu drr_object %llu %s\n",
+	    object, drro->drr_object,
+	    object == DMU_NEW_OBJECT ? "new" : "existing");
+
 	/*
 	 * If we are losing blkptrs or changing the block size this must
 	 * be a new file instance.  We must clear out the previous file
@@ -2459,6 +2463,8 @@ receive_object(struct receive_writer_arg *rwa, struct drr_object *drro,
 		    drro->drr_nlevels < doi.doi_indirection))) {
 			err = dmu_free_long_range(rwa->os, drro->drr_object,
 			    0, DMU_OBJECT_END);
+			dprintf("called dmu_free_long_range object %llu err %d\n",
+			    object, err);
 			if (err != 0)
 				return (SET_ERROR(EINVAL));
 		}
@@ -2558,8 +2564,11 @@ receive_freeobjects(struct receive_writer_arg *rwa,
 	if (drrfo->drr_firstobj + drrfo->drr_numobjs < drrfo->drr_firstobj)
 		return (SET_ERROR(EINVAL));
 
-	for (obj = drrfo->drr_firstobj == 0 ? 1 : drrfo->drr_firstobj;
-	    obj < drrfo->drr_firstobj + drrfo->drr_numobjs && next_err == 0;
+	obj = drrfo->drr_firstobj == 0 ? 1 : drrfo->drr_firstobj;
+	dprintf("Freeing objects >= %llu (obj) and < %llu (sum)\n",
+	    obj, drrfo->drr_firstobj + drrfo->drr_numobjs);
+
+	for (; obj < drrfo->drr_firstobj + drrfo->drr_numobjs && next_err == 0;
 	    next_err = dmu_object_next(rwa->os, &obj, FALSE, 0)) {
 		dmu_object_info_t doi;
 		int err;
@@ -3368,6 +3377,7 @@ receive_process_record(struct receive_writer_arg *rwa,
 	ASSERT3U(rrd->bytes_read, >=, rwa->bytes_read);
 	rwa->bytes_read = rrd->bytes_read;
 
+	dprintf("begin drr_type = %u\n", rrd->header.drr_type);
 	switch (rrd->header.drr_type) {
 	case DRR_OBJECT:
 	{
@@ -3438,7 +3448,7 @@ receive_process_record(struct receive_writer_arg *rwa,
 		return (SET_ERROR(EINVAL));
 	}
 
-	if (err != 0)
+	//if (err != 0)
 		dprintf_drr(rrd, err);
 
 	return (err);
@@ -3455,13 +3465,15 @@ receive_writer_thread(void *arg)
 	struct receive_record_arg *rrd;
 	fstrans_cookie_t cookie = spl_fstrans_mark();
 
-	for (rrd = bqueue_dequeue(&rwa->q); !rrd->eos_marker;
-	    rrd = bqueue_dequeue(&rwa->q)) {
+	dprintf("Beginning to process receive stream.\n");
+
+	for (rrd = bqueue_dequeue(&rwa->q); !rrd->eos_marker;) {
 		/*
 		 * If there's an error, the main thread will stop putting things
 		 * on the queue, but we need to clear everything in it before we
 		 * can exit.
 		 */
+		dprintf("dequeued record\n");
 		if (rwa->err == 0) {
 			rwa->err = receive_process_record(rwa, rrd);
 		} else if (rrd->arc_buf != NULL) {
@@ -3473,7 +3485,14 @@ receive_writer_thread(void *arg)
 			rrd->payload = NULL;
 		}
 		kmem_free(rrd, sizeof (*rrd));
+		dprintf("queue empty: %s\n", bqueue_empty(&rwa->q) ? "yes" : "no");
+		rrd = bqueue_dequeue(&rwa->q);
+		if (rrd->eos_marker)
+			dprintf("reached end of stream\n");
 	}
+
+	dprintf("Finished processing receive stream.\n");
+
 	kmem_free(rrd, sizeof (*rrd));
 	mutex_enter(&rwa->mutex);
 	rwa->done = B_TRUE;

@@ -1386,7 +1386,10 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 				DNODE_STAT_BUMP(dnode_hold_alloc_interior);
 				dnode_slots_rele(dnc, idx, slots);
 				dbuf_rele(db, FTAG);
-				return (SET_ERROR(EEXIST));
+				err = EEXIST;
+				dprintf("object %llu DN_SLOT_INTERIOR err %d\n",
+				    (u_longlong_t)object, err);
+				return (SET_ERROR(err));
 			} else if (dnh->dnh_dnode != DN_SLOT_ALLOCATED) {
 				DNODE_STAT_BUMP(dnode_hold_alloc_misses);
 				dnode_slots_rele(dnc, idx, slots);
@@ -1462,10 +1465,15 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 		mutex_enter(&dn->dn_mtx);
 		if (!refcount_is_zero(&dn->dn_holds)) {
 			DNODE_STAT_BUMP(dnode_hold_free_refcount);
+			err = EEXIST;
+			dprintf("object %llu type %u dn_holds %llu err %d\n",
+			    (u_longlong_t)dn->dn_object, dn->dn_type,
+			    (u_longlong_t)refcount_count(&dn->dn_holds),
+			    err);
 			mutex_exit(&dn->dn_mtx);
 			dnode_slots_rele(dnc, idx, slots);
 			dbuf_rele(db, FTAG);
-			return (SET_ERROR(EEXIST));
+			return (SET_ERROR(err));
 		}
 
 		dnode_set_slots(dnc, idx + 1, slots - 1, DN_SLOT_INTERIOR);
@@ -1478,10 +1486,14 @@ dnode_hold_impl(objset_t *os, uint64_t object, int flag, int slots,
 	if (dn->dn_free_txg) {
 		DNODE_STAT_BUMP(dnode_hold_free_txg);
 		type = dn->dn_type;
+		err = (type == DMU_OT_NONE ? ENOENT : EEXIST);
+		dprintf("object %llu type %u dn_free_txg %llu err %d\n",
+		    (u_longlong_t)dn->dn_object, dn->dn_type,
+		    (u_longlong_t)dn->dn_free_txg, err);
 		mutex_exit(&dn->dn_mtx);
 		dnode_slots_rele(dnc, idx, slots);
 		dbuf_rele(db, FTAG);
-		return (SET_ERROR(type == DMU_OT_NONE ? ENOENT : EEXIST));
+		return (SET_ERROR(err));
 	}
 
 	if (refcount_add(&dn->dn_holds, tag) == 1)

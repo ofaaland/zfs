@@ -52,7 +52,7 @@ dodefault(zfs_prop_t prop, int intsz, int numints, void *buf)
 	 */
 	if (prop == ZPROP_INVAL ||
 	    (zfs_prop_readonly(prop) && !zfs_prop_setonce(prop)))
-		return (SET_ERROR(ENOENT));
+		return (ENOENT); // (SET_ERROR(ENOENT));
 
 	if (zfs_prop_get_type(prop) == PROP_TYPE_STRING) {
 		if (intsz != 1)

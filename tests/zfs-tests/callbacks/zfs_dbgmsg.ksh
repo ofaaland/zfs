@@ -15,8 +15,8 @@
 # Copyright (c) 2016 by Delphix. All rights reserved.
 #
 
-# $1: number of lines to output (default: 200)
-typeset lines=${1:-200}
+# $1: number of lines to output (default: 400)
+typeset lines=${1:-400}
 
 echo "================================================================="
 echo " Tailing last $lines lines of zfs_dbgmsg log"

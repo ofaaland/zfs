@@ -60,6 +60,9 @@ log_must zfs unmount $POOL/fs
 log_must zfs snapshot $POOL/fs@b
 log_must eval "zfs send $POOL/fs@a > $BACKDIR/fs-dn-auto"
 log_must eval "zfs send -i $POOL/fs@a $POOL/fs@b > $BACKDIR/fs-dn-legacy"
+
+log_must eval "zstreamdump -v < $BACKDIR/fs-dn-legacy > /tmp/dump"
+
 log_must eval "zfs recv $POOL/newfs < $BACKDIR/fs-dn-auto"
 log_must eval "zfs recv $POOL/newfs < $BACKDIR/fs-dn-legacy"
 
