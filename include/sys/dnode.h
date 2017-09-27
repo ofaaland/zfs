@@ -379,7 +379,6 @@ typedef struct free_range {
 	uint64_t fr_nblks;
 } free_range_t;
 
-int dnode_set_slots_ext(dnode_children_t *children, int idx, int slots, void *ptr);
 void dnode_special_open(struct objset *dd, dnode_phys_t *dnp,
     uint64_t object, dnode_handle_t *dnh);
 void dnode_special_close(dnode_handle_t *dnh);
