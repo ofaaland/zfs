@@ -1063,6 +1063,18 @@ dnode_set_slots(dnode_children_t *children, int idx, int slots, void *ptr)
 	}
 }
 
+int
+dnode_set_slots_ext(dnode_children_t *children, int idx, int slots, void *ptr)
+{
+	if (dnode_slots_tryenter(children, idx, slots)) {
+		dnode_set_slots(children, idx, slots, ptr);
+		dnode_slots_rele(children, idx, slots);
+		return (1);
+	} else {
+		return (0);
+	}
+}
+
 static boolean_t
 dnode_check_slots(dnode_children_t *children, int idx, int slots, void *ptr)
 {

@@ -535,6 +535,22 @@ dnode_sync_free(dnode_t *dn, dmu_tx_t *tx)
 		dmu_buf_will_dirty(&dn->dn_dbuf->db, tx);
 	bzero(dn->dn_phys, sizeof (dnode_phys_t) * dn->dn_num_slots);
 
+	rw_enter(&dn->dn_struct_rwlock, RW_WRITER);
+	{
+		dnode_children_t *dnc;
+		dmu_buf_impl_t *db;
+		int epb, idx;
+
+		db = dn->dn_dbuf;
+		epb = db->db.db_size >> DNODE_SHIFT;
+		idx = dn->dn_object & (epb - 1);
+		dnc = dmu_buf_get_user(&db->db);
+
+		if (!dnode_set_slots_ext(dnc, idx, dn->dn_num_slots, DN_SLOT_FREE))
+			dprintf("Failed to free slots in dnode child array");
+	}
+	rw_exit(&dn->dn_struct_rwlock);
+
 	mutex_enter(&dn->dn_mtx);
 	dn->dn_type = DMU_OT_NONE;
 	dn->dn_maxblkid = 0;
