@@ -266,13 +266,17 @@ dmu_object_reclaim_dnsize(objset_t *os, uint64_t object, dmu_object_type_t ot,
 
 	err = dnode_hold_impl(os, object, DNODE_MUST_BE_ALLOCATED, 0,
 	    FTAG, &dn);
-	if (err)
+	if (err) {
+		dprintf("object %llu dnode_hold_impl returned %d\n",
+		    (u_longlong_t)dn->dn_object, err);
 		return (err);
+	}
 
 	dmu_buf_will_dirty((dmu_buf_t *)dn->dn_dbuf, tx);
 
 	if (dn_slots > dn->dn_num_slots) {
 		DNODE_STAT_BUMP(dnode_expand);
+		err = dnode_expand(dn, dn_slots, tx);
 	} else if (dn_slots < dn->dn_num_slots) {
 		DNODE_STAT_BUMP(dnode_shrink);
 		err = dnode_shrink(dn, dn_slots, tx);

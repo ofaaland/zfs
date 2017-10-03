@@ -1155,6 +1155,82 @@ dnode_buf_evict_async(void *dbu)
 }
 
 int
+dnode_expand(dnode_t *dn, int slots, dmu_tx_t *tx)
+{
+	dmu_buf_impl_t *db;
+	dnode_children_t *dnc;
+	int orig_slots, epb, idx;
+	int err = 0;
+	int add_slots, start_slot;
+
+	ASSERT(dn);
+	ASSERT(dn->dn_num_slots < slots);
+	ASSERT(slots >= 1);
+
+	/* clean up any unreferenced dbufs */
+	dnode_evict_dbufs(dn);
+
+	db = dn->dn_dbuf;
+	epb = db->db.db_size >> DNODE_SHIFT;
+	idx = dn->dn_object & (epb - 1);
+	dnc = dmu_buf_get_user(&db->db);
+
+	orig_slots = dn->dn_num_slots;
+	add_slots = slots - orig_slots;
+	start_slot = idx + orig_slots;
+
+	rw_enter(&dn->dn_struct_rwlock, RW_WRITER);
+	dnode_setdirty(dn, tx);
+
+	dprintf("object %llu slots %u orig_slots %u\n",
+	    (u_longlong_t)dn->dn_object, slots, orig_slots);
+
+	if (idx + slots - 1 >= DNODES_PER_BLOCK) {
+		err = SET_ERROR(ENOSPC);
+		goto unlock_dnode;
+	}
+
+	if (!dnode_slots_tryenter(dnc, start_slot, add_slots)) {
+		err = SET_ERROR(ENOLCK);
+		goto unlock_dnode;
+	}
+
+	if (!dnode_check_slots(dnc, start_slot, add_slots, DN_SLOT_FREE)) {
+		dnode_slots_rele(dnc, start_slot, add_slots);
+		err = SET_ERROR(ENOSPC);
+		goto unlock_dnode;
+	}
+
+	dnode_set_slots(dnc, start_slot, add_slots, DN_SLOT_INTERIOR);
+	dnode_slots_rele(dnc, start_slot, add_slots);
+
+	/*
+	 * No need to adjust dn_bonuslen.  dnode_reallocate() is called
+	 * after dnode_expand() returns, before any others might write
+	 * to the bonus buffer.  dnode_reallocate() also calls dnode_dirty()
+	 * which in turn calls dbuf_dirty().
+	 *
+	 * XXX Must I update dn_phys.dn_extra_slots here?  Not done by
+	 * dnode_reallocate(), only by dnode_sync().
+	 */
+	dn->dn_num_slots = slots;
+
+	mutex_enter(&dn->dn_mtx);
+	dprintf("dn_extra_slots %u dn_num_slots %u\n",
+	    dn->dn_phys->dn_extra_slots, dn->dn_num_slots);
+	/*
+	dn->dn_phys->dn_extra_slots = dn->dn_num_slots - 1;
+	bzero((void *)dn->dn_phys + slots * DNODE_MIN_SIZE,
+	    (orig_slots - slots) * DNODE_MIN_SIZE);
+	*/
+	mutex_exit(&dn->dn_mtx);
+
+unlock_dnode:
+	rw_exit(&dn->dn_struct_rwlock);
+	return (err);
+}
+
+int
 dnode_shrink(dnode_t *dn, int slots, dmu_tx_t *tx)
 {
 	dmu_buf_impl_t *db;
