@@ -3438,7 +3438,7 @@ receive_process_record(struct receive_writer_arg *rwa,
 		return (SET_ERROR(EINVAL));
 	}
 
-	if (err != 0)
+	//if (err != 0)
 		dprintf_drr(rrd, err);
 
 	return (err);

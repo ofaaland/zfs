@@ -42,6 +42,7 @@ function cleanup
 {
 	rm -f $BACKDIR/fs-dn-auto
 	rm -f $BACKDIR/fs-dn-legacy
+	rm -f $BACKDIR/fs-dn-2k
 }
 
 log_onexit cleanup
@@ -50,6 +51,8 @@ log_must zfs create -o dnodesize=auto $POOL/fs
 mk_files 200 262144 0 $POOL/fs
 log_must zfs unmount $POOL/fs
 log_must zfs snapshot $POOL/fs@a
+
+
 log_must zfs mount $POOL/fs
 log_must rm /$POOL/fs/*
 log_must zfs unmount $POOL/fs
@@ -73,10 +76,14 @@ log_must zfs snapshot $POOL/fs@c
 log_must eval "zfs send $POOL/fs@a > $BACKDIR/fs-dn-auto"
 log_must eval "zfs send -i $POOL/fs@a $POOL/fs@b > $BACKDIR/fs-dn-legacy"
 log_must eval "zfs send -i $POOL/fs@b $POOL/fs@c > $BACKDIR/fs-dn-2k"
+log_must eval "zfs send -i $POOL/fs@a $POOL/fs@c > $BACKDIR/fs-dn-auto-to-2k"
 
+log_must cp $BACKDIR/* /tmp
 
 log_must eval "zfs recv $POOL/newfs < $BACKDIR/fs-dn-auto"
 log_must eval "zfs recv $POOL/newfs < $BACKDIR/fs-dn-legacy"
 log_must eval "zfs recv $POOL/newfs < $BACKDIR/fs-dn-2k"
+
+log_fail "kids these days"
 
 log_pass "Verify incremental receive handles objects with changed dnode size"
