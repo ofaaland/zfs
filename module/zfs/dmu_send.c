@@ -3133,7 +3133,7 @@ receive_read_record(struct receive_arg *ra)
 		 * See receive_read_prefetch for an explanation why we're
 		 * storing this object in the ignore_obj_list.
 		 */
-		if (err == ENOENT ||
+		if (err == ENOENT || err == EEXIST ||
 		    (err == 0 && doi.doi_data_block_size != drro->drr_blksz)) {
 			objlist_insert(&ra->ignore_objlist, drro->drr_object);
 			err = 0;
