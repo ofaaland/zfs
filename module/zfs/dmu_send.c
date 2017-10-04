@@ -2398,6 +2398,7 @@ receive_object(struct receive_writer_arg *rwa, struct drr_object *drro,
 	dmu_tx_t *tx;
 	uint64_t object;
 	int err;
+	boolean_t need_sync = B_FALSE;
 
 	if (drro->drr_type == DMU_OT_NONE ||
 	    !DMU_OT_IS_VALID(drro->drr_type) ||
@@ -2461,6 +2462,41 @@ receive_object(struct receive_writer_arg *rwa, struct drr_object *drro,
 			    0, DMU_OBJECT_END);
 			if (err != 0)
 				return (SET_ERROR(EINVAL));
+		}
+	}
+
+	/*
+	 * If the object is being expanded, and other objects are in the dnode
+	 * slots needed, we must free them before beginning to update the
+	 * dnode, so the slots are free we are not stomping on other dnodes when
+	 * we expand.  Must also ensure that a FREE record that comes along later
+	 * for those overlapped objects does not damage the dnode we are expanding.
+	 *
+	 * We can alter the child pointers in the dnode handles after the free,
+	 * without leaking the dnode structures, because dmu_free_long_object()
+	 * indirectly calls dnode_free() which adds the dnode_t * to a list
+	 * which is walked by dmu_objset_sync_dnodes().
+	 *
+	 * XXX How can we be sure that during the sync, when dnode_sync_free()
+	 * is called on the freed dnode_t *, that the bzero(dn->dn_phys,...)
+	 * call does not erase dnode slots we just put data in as part of the
+	 * dnode expansion or a subsequent WRITE record?
+	 */
+	if (object != DMU_NEW_OBJECT && drro->drr_dn_slots >
+	    (doi.doi_dnodesize >> DNODE_SHIFT)) {
+		int orig_slots = (doi.doi_dnodesize >> DNODE_SHIFT);
+		int start_obj = object + orig_slots;
+		dnode_t *dnrm;
+
+		for (int obj = start_obj; obj < start_obj + drro->drr_dn_slots;
+		    obj++) {
+			if (dnode_hold(rwa->os, obj, FTAG, &dnrm) == 0) {
+				dnode_rele(dnrm, FTAG);
+				err = dmu_free_long_object(rwa->os, obj);
+				if (err)
+					return (SET_ERROR(err));
+				need_sync = B_TRUE;
+			}
 		}
 	}
 
