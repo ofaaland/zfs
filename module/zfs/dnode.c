@@ -1154,6 +1154,41 @@ dnode_buf_evict_async(void *dbu)
 	    dnc->dnc_count * sizeof (dnode_handle_t));
 }
 
+/*
+ * Change child pointers for some subset of the slots owned by dnode_t *dn.  For
+ * example, if object 17, slot width 4 is shrinking to slot width 1, then
+ * dnode_children_try_set_slots(dn, 18, 3, DN_SLOT_FREE) would be called to mark
+ * the slots no longer in use as free for new object creation.
+ * The dnode must be held.
+ */
+static int
+dnode_children_try_set_slots(dnode_t *dn, uint64_t start_slot, int slots, void *ptr)
+{
+	dmu_buf_impl_t *db;
+	dnode_children_t *dnc;
+	int epb, idx;
+
+	ASSERT3U(start_slot, >=, dn->dn_object);
+	ASSERT3U((start_slot + slots - 1), <,
+	    (dn->dn_object + dn->dn_num_slots));
+
+	dprintf("object %llu slots %u\n",
+	    (u_longlong_t)dn->dn_object, slots);
+
+	db = dn->dn_dbuf;
+	epb = db->db.db_size >> DNODE_SHIFT;
+	idx = start_slot & (epb - 1);
+	dnc = dmu_buf_get_user(&db->db);
+
+	if (!dnode_slots_tryenter(dnc, idx, slots))
+		return (ENOLCK);
+
+	dnode_set_slots(dnc, idx, slots, ptr);
+	dnode_slots_rele(dnc, idx, slots);
+
+	return (0);
+}
+
 int
 dnode_expand(dnode_t *dn, int slots, dmu_tx_t *tx)
 {
@@ -1726,6 +1761,10 @@ dnode_free(dnode_t *dn, dmu_tx_t *tx)
 	mutex_exit(&dn->dn_mtx);
 
 	dnode_setdirty(dn, tx);
+
+	while (dnode_children_try_set_slots(dn, dn->dn_object, dn->dn_num_slots,
+	    DN_SLOT_FREE) != 0)
+		;
 }
 
 /*
