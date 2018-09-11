@@ -31,6 +31,7 @@
 #include <sys/space_map.h>
 #include <sys/metaslab_impl.h>
 #include <sys/vdev_impl.h>
+#include <sys/vdev_draid_impl.h>
 #include <sys/zio.h>
 #include <sys/spa_impl.h>
 #include <sys/zfeature.h>
@@ -1576,8 +1577,8 @@ metaslab_block_find(zfs_btree_t *t, range_tree_t *rt, uint64_t start,
  * for a block that matches the specified criteria.
  */
 static uint64_t
-metaslab_block_picker(range_tree_t *rt, uint64_t *cursor, uint64_t size,
-    uint64_t max_search)
+metaslab_block_picker(metaslab_t *msp, range_tree_t *rt, uint64_t *cursor,
+    uint64_t size, uint64_t max_search, uint64_t align)
 {
 	if (*cursor == 0)
 		*cursor = rt->rt_start;
@@ -1592,11 +1593,31 @@ metaslab_block_picker(range_tree_t *rt, uint64_t *cursor, uint64_t size,
 
 	while (rs != NULL && (rs_get_start(rs, rt) - first_found <=
 	    max_search || count_searched < metaslab_min_search_count)) {
+		vdev_t *vd = msp->ms_group->mg_vd;
 		uint64_t offset = rs_get_start(rs, rt);
-		if (offset + size <= rs_get_end(rs, rt)) {
-			*cursor = offset + size;
-			return (offset);
+		uint64_t next_offset;
+
+		if (vd->vdev_ops != &vdev_draid_ops) {
+			if (offset + size <= rs_get_end(rs, rt)) {
+				*cursor = offset + size;
+				return (offset);
+			}
+		} else {
+			next_offset = vdev_draid_check_block(vd, offset, size);
+			if (next_offset == offset) {
+				*cursor = offset + size;
+				return (offset);
+			}
+
+			offset = P2ROUNDUP(next_offset, align);
+			if (offset + size <= rs_get_end(rs, rt)) {
+				ASSERT3U(offset, ==,
+				    vdev_draid_check_block(vd, offset, size));
+				*cursor = offset + size;
+				return (offset);
+			}
 		}
+
 		rs = zfs_btree_next(bt, &where, &where);
 		count_searched++;
 	}
@@ -1653,8 +1674,8 @@ metaslab_df_alloc(metaslab_t *msp, uint64_t size)
 	    free_pct < metaslab_df_free_pct) {
 		offset = -1;
 	} else {
-		offset = metaslab_block_picker(rt,
-		    cursor, size, metaslab_df_max_search);
+		offset = metaslab_block_picker(msp, rt,
+		    cursor, size, metaslab_df_max_search, align);
 	}
 
 	if (offset == -1) {
@@ -2607,6 +2628,13 @@ metaslab_init(metaslab_group_t *mg, uint64_t id, uint64_t object,
 	ms->ms_size = 1ULL << vd->vdev_ms_shift;
 	ms->ms_allocator = -1;
 	ms->ms_new = B_TRUE;
+	if (vd->vdev_ops == &vdev_draid_ops) {
+		uint64_t astart = vdev_draid_get_astart(vd, ms->ms_start);
+
+		ASSERT3U(astart - ms->ms_start, <, ms->ms_size);
+		ms->ms_size -= astart - ms->ms_start;
+		ms->ms_start = astart;
+	}
 
 	/*
 	 * We only open space map objects that already exist. All others
@@ -2886,6 +2914,30 @@ metaslab_set_fragmentation(metaslab_t *msp, boolean_t nodirty)
 }
 
 /*
+ * dRAID metaslabs start at a certain alignment, which causes their sizes to
+ * vary by a few sectors. The block allocator may get confused and pick a
+ * distant metaslab because the closer ones are slightly smaller. The small
+ * variance doesn't matter when the metaslab has already been allocated from.
+ *
+ * This function returns adjusted size to calculate metaslab weight, and
+ * should not be used for other purposes.
+ */
+static uint64_t
+metaslab_weight_size(metaslab_t *msp)
+{
+	vdev_t *vd = msp->ms_group->mg_vd;
+	uint64_t size;
+
+	if (vd->vdev_ops != &vdev_draid_ops ||
+	    space_map_allocated(msp->ms_sm) != 0)
+		return (msp->ms_size);
+
+	size = 1ULL << vd->vdev_ms_shift;
+	ASSERT3U(size, >=, msp->ms_size);
+	return (size);
+}
+
+/*
  * Compute a weight -- a selection preference value -- for the given metaslab.
  * This is based on the amount of free space, the level of fragmentation,
  * the LBA range, and whether the metaslab is loaded.
@@ -2902,7 +2954,7 @@ metaslab_space_weight(metaslab_t *msp)
 	/*
 	 * The baseline weight is the metaslab's free space.
 	 */
-	space = msp->ms_size - metaslab_allocated_space(msp);
+	space = metaslab_weight_size(msp) - metaslab_allocated_space(msp);
 
 	if (metaslab_fragmentation_factor_enabled &&
 	    msp->ms_fragmentation != ZFS_FRAG_INVALID) {
@@ -3063,7 +3115,7 @@ metaslab_segment_weight(metaslab_t *msp)
 	 * The metaslab is completely free.
 	 */
 	if (metaslab_allocated_space(msp) == 0) {
-		int idx = highbit64(msp->ms_size) - 1;
+		int idx = highbit64(metaslab_weight_size(msp)) - 1;
 		int max_idx = SPACE_MAP_HISTOGRAM_SIZE + shift - 1;
 
 		if (idx < max_idx) {
@@ -4556,6 +4608,7 @@ metaslab_block_alloc(metaslab_t *msp, uint64_t size, uint64_t txg)
 	ASSERT(MUTEX_HELD(&msp->ms_lock));
 	VERIFY(!msp->ms_condensing);
 	VERIFY0(msp->ms_disabled);
+	VERIFY(!msp->ms_rebuilding);
 
 	start = mc->mc_ops->msop_alloc(msp, size);
 	if (start != -1ULL) {
@@ -4569,7 +4622,7 @@ metaslab_block_alloc(metaslab_t *msp, uint64_t size, uint64_t txg)
 		range_tree_clear(msp->ms_trim, start, size);
 
 		if (range_tree_is_empty(msp->ms_allocating[txg & TXG_MASK]))
-			vdev_dirty(mg->mg_vd, VDD_METASLAB, msp, txg);
+			vdev_dirty(vd, VDD_METASLAB, msp, txg);
 
 		range_tree_add(msp->ms_allocating[txg & TXG_MASK], start, size);
 		msp->ms_allocating_total += size;
@@ -4622,8 +4675,10 @@ find_valid_metaslab(metaslab_group_t *mg, uint64_t activation_weight,
 		 * If the selected metaslab is condensing or disabled,
 		 * skip it.
 		 */
-		if (msp->ms_condensing || msp->ms_disabled > 0)
+		if (msp->ms_condensing || msp->ms_disabled > 0 ||
+		    msp->ms_rebuilding) {
 			continue;
+		}
 
 		*was_active = msp->ms_allocator != -1;
 		/*
@@ -4890,7 +4945,7 @@ metaslab_group_alloc_normal(metaslab_group_t *mg, zio_alloc_list_t *zal,
 		 * allocate from it since the allocated region might be
 		 * overwritten after allocation.
 		 */
-		if (msp->ms_condensing) {
+		if (msp->ms_condensing || msp->ms_rebuilding) {
 			metaslab_trace_add(zal, mg, msp, asize, d,
 			    TRACE_CONDENSING, allocator);
 			if (activated) {
@@ -4986,7 +5041,8 @@ next:
 		 * we may end up in an infinite loop retrying the same
 		 * metaslab.
 		 */
-		ASSERT(!metaslab_should_allocate(msp, asize, try_hard));
+		ASSERT(!metaslab_should_allocate(msp, asize, try_hard) ||
+		    mg->mg_vd->vdev_ops == &vdev_draid_ops);
 
 		mutex_exit(&msp->ms_lock);
 	}
@@ -5288,6 +5344,7 @@ metaslab_free_concrete(vdev_t *vd, uint64_t offset, uint64_t asize,
 	msp = vd->vdev_ms[offset >> vd->vdev_ms_shift];
 
 	VERIFY(!msp->ms_condensing);
+	VERIFY(!msp->ms_rebuilding);
 	VERIFY3U(offset, >=, msp->ms_start);
 	VERIFY3U(offset + asize, <=, msp->ms_start + msp->ms_size);
 	VERIFY0(P2PHASE(offset, 1ULL << vd->vdev_ashift));
