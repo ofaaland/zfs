@@ -27,6 +27,7 @@
 
 #
 # Copyright (c) 2012, 2016 by Delphix. All rights reserved.
+# Copyright (c) 2020 Lawrence Livermore National Security, LLC.
 #
 
 . $STF_SUITE/include/libtest.shlib
@@ -34,14 +35,14 @@
 
 #
 # DESCRIPTION:
-#	For raidz, one destroyed pools devices was removed or used by other
+#	For draid2, two destroyed pool's devices were removed or used by other
 #	pool, it still can be imported correctly.
 #
 # STRATEGY:
-#	1. Create a raidz pool A with N disks.
+#	1. Create a draid2 pool A with N disks.
 #	2. Destroy this pool A.
-#	3. Create another pool B with 1 disk which was used by pool A.
-#	4. Verify import this raidz pool can succeed.
+#	3. Create another pool B with two disks which were used by pool A.
+#	4. Verify import this draid2 pool can succeed.
 #
 
 verify_runnable "global"
@@ -59,11 +60,11 @@ function cleanup
 	done
 }
 
-log_assert "For raidz, one destroyed pools devices was removed or used by " \
+log_assert "For draid2, two destroyed pools devices was removed or used by " \
 	"other pool, it still can be imported correctly."
 log_onexit cleanup
 
-log_must zpool create $TESTPOOL1 raidz $VDEV0 $VDEV1 $VDEV2 $VDEV3
+log_must zpool create $TESTPOOL1 draid2 $VDEV0 $VDEV1 $VDEV2 $VDEV3
 typeset guid=$(get_config $TESTPOOL1 pool_guid)
 typeset target=$TESTPOOL1
 if (( RANDOM % 2 == 0 )) ; then
@@ -72,19 +73,20 @@ if (( RANDOM % 2 == 0 )) ; then
 fi
 log_must zpool destroy $TESTPOOL1
 
-log_must zpool create $TESTPOOL2 $VDEV0
+log_must zpool create $TESTPOOL2 $VDEV0 $VDEV1
 log_must zpool import -d $DEVICE_DIR -D -f $target
 log_must zpool destroy $TESTPOOL1
 
 log_must zpool destroy $TESTPOOL2
-log_must rm -rf $VDEV0
+log_must rm -rf $VDEV0 $VDEV1
 log_must zpool import -d $DEVICE_DIR -D -f $target
 log_must zpool destroy $TESTPOOL1
 
-log_note "For raidz, two destroyed pool's devices were used, import failed."
-log_must mkfile $FILE_SIZE $VDEV0
-log_must zpool create $TESTPOOL2 $VDEV0 $VDEV1
+log_note "For draid2, more than two destroyed pool's devices were used, " \
+	"import failed."
+log_must mkfile $FILE_SIZE $VDEV0 $VDEV1
+log_must zpool create $TESTPOOL2 $VDEV0 $VDEV1 $VDEV2
 log_mustnot zpool import -d $DEVICE_DIR -D -f $target
 log_must zpool destroy $TESTPOOL2
 
-log_pass "zpool import -D raidz passed."
+log_pass "zpool import -D draid2 passed."
