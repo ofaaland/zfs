@@ -662,7 +662,8 @@ dnode_reallocate(dnode_t *dn, dmu_object_type_t ot, int blocksize,
 	ASSERT(DMU_OT_IS_VALID(bonustype));
 	ASSERT3U(bonuslen, <=,
 	    DN_BONUS_SIZE(spa_maxdnodesize(dmu_objset_spa(dn->dn_objset))));
-	ASSERT3U(bonuslen, <=, DN_BONUS_SIZE(dn_slots << DNODE_SHIFT));
+
+	dn_slots = dn_slots > 0 ? dn_slots : DNODE_MIN_SLOTS;
 
 	dnode_free_interior_slots(dn);
 	DNODE_STAT_BUMP(dnode_reallocate);
