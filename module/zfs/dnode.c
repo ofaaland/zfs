@@ -137,7 +137,7 @@ dnode_cons(void *arg, void *unused, int kmflag)
 	bzero(&dn->dn_next_blksz[0], sizeof (dn->dn_next_blksz));
 
 	for (i = 0; i < TXG_SIZE; i++) {
-		multilist_link_init(&dn->dn_dirty_link[i]);
+		list_link_init(&dn->dn_dirty_link[i]);
 		dn->dn_free_ranges[i] = NULL;
 		list_create(&dn->dn_dirty_records[i],
 		    sizeof (dbuf_dirty_record_t),
@@ -147,7 +147,6 @@ dnode_cons(void *arg, void *unused, int kmflag)
 	dn->dn_allocated_txg = 0;
 	dn->dn_free_txg = 0;
 	dn->dn_assigned_txg = 0;
-	dn->dn_dirty_txg = 0;
 	dn->dn_dirtyctx = 0;
 	dn->dn_dirtyctx_firstset = NULL;
 	dn->dn_bonus = NULL;
@@ -185,7 +184,7 @@ dnode_dest(void *arg, void *unused)
 	ASSERT(!list_link_active(&dn->dn_link));
 
 	for (i = 0; i < TXG_SIZE; i++) {
-		ASSERT(!multilist_link_active(&dn->dn_dirty_link[i]));
+		ASSERT(!list_link_active(&dn->dn_dirty_link[i]));
 		ASSERT3P(dn->dn_free_ranges[i], ==, NULL);
 		list_destroy(&dn->dn_dirty_records[i]);
 		ASSERT0(dn->dn_next_nblkptr[i]);
@@ -200,7 +199,6 @@ dnode_dest(void *arg, void *unused)
 	ASSERT0(dn->dn_allocated_txg);
 	ASSERT0(dn->dn_free_txg);
 	ASSERT0(dn->dn_assigned_txg);
-	ASSERT0(dn->dn_dirty_txg);
 	ASSERT0(dn->dn_dirtyctx);
 	ASSERT3P(dn->dn_dirtyctx_firstset, ==, NULL);
 	ASSERT3P(dn->dn_bonus, ==, NULL);
@@ -525,7 +523,6 @@ dnode_destroy(dnode_t *dn)
 	dn->dn_allocated_txg = 0;
 	dn->dn_free_txg = 0;
 	dn->dn_assigned_txg = 0;
-	dn->dn_dirty_txg = 0;
 
 	dn->dn_dirtyctx = 0;
 	if (dn->dn_dirtyctx_firstset != NULL) {
@@ -595,7 +592,6 @@ dnode_allocate(dnode_t *dn, dmu_object_type_t ot, int blocksize, int ibs,
 	ASSERT0(dn->dn_maxblkid);
 	ASSERT0(dn->dn_allocated_txg);
 	ASSERT0(dn->dn_assigned_txg);
-	ASSERT0(dn->dn_dirty_txg);
 	ASSERT(refcount_is_zero(&dn->dn_tx_holds));
 	ASSERT3U(refcount_count(&dn->dn_holds), <=, 1);
 	ASSERT(avl_is_empty(&dn->dn_dbufs));
@@ -608,7 +604,7 @@ dnode_allocate(dnode_t *dn, dmu_object_type_t ot, int blocksize, int ibs,
 		ASSERT0(dn->dn_next_bonustype[i]);
 		ASSERT0(dn->dn_rm_spillblk[i]);
 		ASSERT0(dn->dn_next_blksz[i]);
-		ASSERT(!multilist_link_active(&dn->dn_dirty_link[i]));
+		ASSERT(!list_link_active(&dn->dn_dirty_link[i]));
 		ASSERT3P(list_head(&dn->dn_dirty_records[i]), ==, NULL);
 		ASSERT3P(dn->dn_free_ranges[i], ==, NULL);
 	}
@@ -783,7 +779,6 @@ dnode_move_impl(dnode_t *odn, dnode_t *ndn)
 	ndn->dn_allocated_txg = odn->dn_allocated_txg;
 	ndn->dn_free_txg = odn->dn_free_txg;
 	ndn->dn_assigned_txg = odn->dn_assigned_txg;
-	ndn->dn_dirty_txg = odn->dn_dirty_txg;
 	ndn->dn_dirtyctx = odn->dn_dirtyctx;
 	ndn->dn_dirtyctx_firstset = odn->dn_dirtyctx_firstset;
 	ASSERT(refcount_count(&odn->dn_tx_holds) == 0);
@@ -850,7 +845,6 @@ dnode_move_impl(dnode_t *odn, dnode_t *ndn)
 	odn->dn_allocated_txg = 0;
 	odn->dn_free_txg = 0;
 	odn->dn_assigned_txg = 0;
-	odn->dn_dirty_txg = 0;
 	odn->dn_dirtyctx = 0;
 	odn->dn_dirtyctx_firstset = NULL;
 	odn->dn_have_spill = B_FALSE;
@@ -1075,10 +1069,6 @@ dnode_check_slots_free(dnode_children_t *children, int idx, int slots)
 {
 	ASSERT3S(idx + slots, <=, DNODES_PER_BLOCK);
 
-	/*
-	 * If all dnode slots are either already free or
-	 * evictable return B_TRUE.
-	 */
 	for (int i = idx; i < idx + slots; i++) {
 		dnode_handle_t *dnh = &children->dnc_children[i];
 		dnode_t *dn = dnh->dnh_dnode;
@@ -1087,17 +1077,18 @@ dnode_check_slots_free(dnode_children_t *children, int idx, int slots)
 			continue;
 		} else if (DN_SLOT_IS_PTR(dn)) {
 			mutex_enter(&dn->dn_mtx);
-			boolean_t can_free = (dn->dn_type == DMU_OT_NONE &&
-			    !DNODE_IS_DIRTY(dn));
+			dmu_object_type_t type = dn->dn_type;
 			mutex_exit(&dn->dn_mtx);
 
-			if (!can_free)
+			if (type != DMU_OT_NONE)
 				return (B_FALSE);
-			else
-				continue;
+
+			continue;
 		} else {
 			return (B_FALSE);
 		}
+
+		return (B_FALSE);
 	}
 
 	return (B_TRUE);
@@ -1603,7 +1594,7 @@ dnode_setdirty(dnode_t *dn, dmu_tx_t *tx)
 	/*
 	 * If we are already marked dirty, we're done.
 	 */
-	if (multilist_link_active(&dn->dn_dirty_link[txg & TXG_MASK])) {
+	if (list_link_active(&dn->dn_dirty_link[txg & TXG_MASK])) {
 		multilist_sublist_unlock(mls);
 		return;
 	}
