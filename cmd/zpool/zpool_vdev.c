@@ -77,7 +77,7 @@
 #include "zpool_util.h"
 #include <sys/zfs_context.h>
 #include <sys/stat.h>
-#include <sys/vdev_draid_impl.h>
+#include "draid_config.h"
 
 /*
  * For any given vdev specification, we can have multiple errors.  The

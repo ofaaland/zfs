@@ -414,7 +414,6 @@ extern int zpool_import(libzfs_handle_t *, nvlist_t *, const char *,
 extern int zpool_import_props(libzfs_handle_t *, nvlist_t *, const char *,
     nvlist_t *, int);
 extern void zpool_print_unsup_feat(nvlist_t *config);
-extern nvlist_t *draidcfg_read_file(const char *);
 
 /*
  * Miscellaneous pool functions

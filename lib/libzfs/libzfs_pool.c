@@ -43,10 +43,10 @@
 #include <sys/systeminfo.h>
 #include <sys/zfs_ioctl.h>
 #include <sys/vdev_disk.h>
-#include <sys/vdev_draid_impl.h>
 #include <dlfcn.h>
 #include <libzutil.h>
 
+#include "draid_config.h"
 #include "zfs_namecheck.h"
 #include "zfs_prop.h"
 #include "libzfs_impl.h"

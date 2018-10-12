@@ -38,6 +38,7 @@ endif
 
 KERNEL_C = \
 	algs/sha2/sha2.c \
+	draid_config.c \
 	zfeature_common.c \
 	zfs_comutil.c \
 	zfs_deleg.c \
@@ -61,7 +62,6 @@ nodist_libzfs_la_SOURCES = \
 libzfs_la_LIBADD = \
 	$(top_builddir)/lib/libnvpair/libnvpair.la \
 	$(top_builddir)/lib/libuutil/libuutil.la \
-	$(top_builddir)/lib/libzpool/libzpool.la \
 	$(top_builddir)/lib/libzfs_core/libzfs_core.la \
 	$(top_builddir)/lib/libzutil/libzutil.la
 

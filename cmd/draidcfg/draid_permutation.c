@@ -22,6 +22,7 @@
  * Copyright (c) 2016 Intel Corporation.
  */
 
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -29,6 +30,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <math.h>
+#include <sys/stat.h>
 
 #include "draid_permutation.h"
 
@@ -151,10 +153,9 @@ check_map(map_t *map)
 	memset(brokencounts, 0, sizeof (int) * map->ndevs);
 
 	for (i = 0; i < map->nbroken; i++) {
-		int dev __maybe_unused = map->broken[i];
-
-		ASSERT(0 <= dev && dev < map->ndevs); /* valid drive */
-		ASSERT(brokencounts[i] == 0); /* not used already */
+		ASSERT3S(0, <=, map->broken[i]);
+		ASSERT3S(map->broken[i], <, map->ndevs);
+		ASSERT0(brokencounts[i]); /* not used already */
 		brokencounts[i] = 1;
 	}
 }
