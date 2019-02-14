@@ -46,7 +46,6 @@ typedef struct mmp_thread {
 	int		mmp_skip_error; /* reason for last skipped write */
 } mmp_thread_t;
 
-
 extern void mmp_init(struct spa *spa);
 extern void mmp_fini(struct spa *spa);
 extern void mmp_thread_start(struct spa *spa);
