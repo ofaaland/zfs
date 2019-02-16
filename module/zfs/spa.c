@@ -2350,10 +2350,20 @@ vdev_count_verify_zaps(vdev_t *vd)
 }
 #endif
 
+/* guid search data */
+typedef enum mmp_skip_reason  {
+	MMP_SKIP_NOT_ALLOWED = 0,	/* MMP check required */
+	MMP_SKIP_FLAG,			/* ZFS_IMPORT_SKIP_MMP set */
+	MMP_SKIP_MULTIHOST_OFF,		/* multihost property off */
+	MMP_SKIP_ALREADY_DONE,		/* Pool unchanged since last check */
+	MMP_SKIP_SAME_HOST,		/* This host imported pool last */
+	MMP_SKIP_CLEAN_EXPORT		/* Pool exported cleanly */
+} mmp_skip_reason_t;
+
 /*
  * Determine whether the activity check is required.
  */
-static boolean_t
+static mmp_skip_reason_t
 spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *label,
     nvlist_t *config)
 {
@@ -2373,18 +2383,25 @@ spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *label,
 
 	(void) nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_STATE, &state);
 
+	if (nvlist_exists(label, ZPOOL_CONFIG_HOSTID))
+		hostid = fnvlist_lookup_uint64(label, ZPOOL_CONFIG_HOSTID);
+
+	zfs_dbgmsg("tryconfig_txg %llu tryconfig_timestamp %llu state %llu "
+	    "spa_get_hostid %llu label_hostid %llu", tryconfig_txg, tryconfig_timestamp, state,
+	    spa_get_hostid(), hostid);
+
 	/*
 	 * Disable the MMP activity check - This is used by zdb which
 	 * is intended to be used on potentially active pools.
 	 */
 	if (spa->spa_import_flags & ZFS_IMPORT_SKIP_MMP)
-		return (B_FALSE);
+		return (MMP_SKIP_FLAG);
 
 	/*
 	 * Skip the activity check when the MMP feature is disabled.
 	 */
 	if (ub->ub_mmp_magic == MMP_MAGIC && ub->ub_mmp_delay == 0)
-		return (B_FALSE);
+		return (MMP_SKIP_MULTIHOST_OFF);
 	/*
 	 * If the tryconfig_* values are nonzero, they are the results of an
 	 * earlier tryimport.  If they match the uberblock we just found, then
@@ -2393,26 +2410,23 @@ spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *label,
 	 */
 	if (tryconfig_txg && tryconfig_txg == ub->ub_txg &&
 	    tryconfig_timestamp && tryconfig_timestamp == ub->ub_timestamp)
-		return (B_FALSE);
+		return (MMP_SKIP_ALREADY_DONE);
 
 	/*
 	 * Allow the activity check to be skipped when importing the pool
 	 * on the same host which last imported it.  Since the hostid from
 	 * configuration may be stale use the one read from the label.
 	 */
-	if (nvlist_exists(label, ZPOOL_CONFIG_HOSTID))
-		hostid = fnvlist_lookup_uint64(label, ZPOOL_CONFIG_HOSTID);
-
 	if (hostid == spa_get_hostid())
-		return (B_FALSE);
+		return (MMP_SKIP_SAME_HOST);
 
 	/*
 	 * Skip the activity test when the pool was cleanly exported.
 	 */
 	if (state != POOL_STATE_ACTIVE)
-		return (B_FALSE);
+		return (MMP_SKIP_CLEAN_EXPORT);
 
-	return (B_TRUE);
+	return (MMP_SKIP_NOT_ALLOWED);
 }
 
 /*
@@ -2471,9 +2485,10 @@ spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 	import_delay = MAX(import_delay, import_intervals *
 	    MSEC2NSEC(MAX(zfs_multihost_interval, MMP_MIN_INTERVAL)));
 
-	zfs_dbgmsg("import_delay=%llu ub_mmp_delay=%llu import_intervals=%u "
-	    "leaves=%u", import_delay, ub->ub_mmp_delay, import_intervals,
-	    vdev_count_leaves(spa));
+ 	zfs_dbgmsg("import_delay=%llu ub_mmp_delay=%llu import_intervals=%u "
+	    "leaves=%u ub_txg %llu ub_timestamp %llu", import_delay,
+	    ub->ub_mmp_delay, import_intervals, vdev_count_leaves(spa),
+	    ub->ub_txg, ub->ub_timestamp);
 
 	/* Add a small random factor in case of simultaneous imports (0-25%) */
 	import_expire = gethrtime() + import_delay +
@@ -2569,7 +2584,7 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 	int parse, i;
 	uint64_t obj;
 	boolean_t missing_feat_write = B_FALSE;
-	boolean_t activity_check = B_FALSE;
+	mmp_skip_reason_t activity_check = MMP_SKIP_NOT_ALLOWED;
 	nvlist_t *mos_config;
 
 	/*
@@ -2673,7 +2688,11 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 	 * hosts which don't have a hostid set from importing the pool.
 	 */
 	activity_check = spa_activity_check_required(spa, ub, label, config);
-	if (activity_check) {
+	if (activity_check != MMP_SKIP_NOT_ALLOWED) {
+		zfs_dbgmsg("mmp activity check skipped: reason %u ub_txg %llu "
+		    "ub_timestamp %llu", activity_check, ub->ub_txg,
+		    ub->ub_timestamp);
+	} else {
 		if (ub->ub_mmp_magic == MMP_MAGIC && ub->ub_mmp_delay &&
 		    spa_get_hostid() == 0) {
 			nvlist_free(label);

@@ -1136,6 +1136,9 @@ vdev_uberblock_load(vdev_t *rvd, uberblock_t *ub, nvlist_t **config)
 	if (cb.ubl_vd != NULL)
 		*config = vdev_label_read_config(cb.ubl_vd, ub->ub_txg);
 	spa_config_exit(spa, SCL_ALL, FTAG);
+
+	zfs_dbgmsg("best uberblock found txg %llu timestamp %llu", ub->ub_txg,
+	    ub->ub_timestamp);
 }
 
 /*
