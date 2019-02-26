@@ -198,6 +198,7 @@ dmu_zfetch_stream_create(zfetch_t *zf, uint64_t blkid)
 	list_insert_head(&zf->zf_stream, zs);
 }
 
+int dmu_zfetch_out_of_range = 0;
 /*
  * This is the predictive prefetch entry point.  It associates dnode access
  * specified with blkid and nblks arguments with prefetch stream, predicts
@@ -215,6 +216,8 @@ dmu_zfetch(zfetch_t *zf, uint64_t blkid, uint64_t nblks, boolean_t fetch_data)
 	int epbs, max_dist_blks, pf_nblks, ipf_nblks, i;
 	uint64_t end_of_access_blkid;
 	end_of_access_blkid = blkid + nblks;
+	boolean_t do_warn = B_TRUE;
+	uint64_t start;
 
 	if (zfs_prefetch_disable)
 		return;
@@ -332,19 +335,57 @@ dmu_zfetch(zfetch_t *zf, uint64_t blkid, uint64_t nblks, boolean_t fetch_data)
 	mutex_exit(&zs->zs_lock);
 	rw_exit(&zf->zf_rwlock);
 
+	if (dmu_zfetch_out_of_range == 0) {
+		if ((max_dist_blks < 0) || (ipf_start < 0) ||
+		    (max_blks < 0) || (pf_ahead_blks < 0) ||
+		    (ipf_nblks < 0) || (epbs < 0) ||
+		    (ipf_istart < 0) || (ipf_iend < 0)) {
+			cmn_err(CE_WARN,
+			    "toss-4454 out of range error: max_dist_blks %d "
+			    "ipf_start %lld max_blks %lld pf_ahead_blks %lld "
+			    "ipf_nblks %d epbs %d zs->zs_ipf_blkid %llu "
+			    "ipf_istart %lld ipf_iend %lld "
+			    "arg blkid %llu arg nblks %llu fetch_data %u"
+			    "dn_object %llu dn_nlevels %u",
+			    max_dist_blks, ipf_start, max_blks, pf_ahead_blks,
+			    ipf_nblks, epbs, zs->zs_ipf_blkid, ipf_istart,
+			    ipf_iend, blkid, nblks, fetch_data,
+			    zf->zf_dnode->dn_object, zf->zf_dnode->dn_nlevels);
+			dmu_zfetch_out_of_range = 1;
+		 }
+	}
+
 	/*
 	 * dbuf_prefetch() is asynchronous (even when it needs to read
 	 * indirect blocks), but we still prefer to drop our locks before
 	 * calling it to reduce the time we hold them.
 	 */
 
+	do_warn = B_TRUE;
+	start = gethrtime();
 	for (i = 0; i < pf_nblks; i++) {
 		dbuf_prefetch(zf->zf_dnode, 0, pf_start + i,
 		    ZIO_PRIORITY_ASYNC_READ, ARC_FLAG_PREDICTIVE_PREFETCH);
+		if (do_warn && (gethrtime() - start) > SEC2NSEC(5)) {
+			cmn_err(CE_WARN, "prefetch loop; object %llu i %d "
+			    "pf_nblks %d", zf->zf_dnode->dn_object, i,
+			    pf_nblks);
+			do_warn = B_FALSE;
+		}
 	}
+
+	do_warn = B_TRUE;
+	start = gethrtime();
 	for (iblk = ipf_istart; iblk < ipf_iend; iblk++) {
 		dbuf_prefetch(zf->zf_dnode, 1, iblk,
 		    ZIO_PRIORITY_ASYNC_READ, ARC_FLAG_PREDICTIVE_PREFETCH);
+		if (do_warn && (gethrtime() - start) > SEC2NSEC(5)) {
+			cmn_err(CE_WARN, "prefetch loop; object %llu "
+			    "istart %lld iblk %lld iend %lld",
+			    zf->zf_dnode->dn_object, ipf_istart, iblk,
+			    ipf_iend);
+			do_warn = B_FALSE;
+		}
 	}
 	ZFETCHSTAT_BUMP(zfetchstat_hits);
 }
