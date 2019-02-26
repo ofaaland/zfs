@@ -934,6 +934,64 @@ vdev_is_hole(uint64_t *hole_array, uint_t holes, uint_t id)
 }
 
 /*
+ * This does not belong here, but it's an easy way to start.
+ */
+
+typedef enum zpool_import_stages {
+	ZI_STAGE_SEARCHING = 0,
+	ZI_STAGE_TRY_MMP_CHECK,
+	ZI_STAGE_TRY_POST,
+	ZI_STAGE_REAL_MMP_CHECK,
+	ZI_STAGE_REAL_POST,
+	ZI_STAGE_IMPORT_DONE
+} zpool_import_stages_t;
+
+typedef struct import_progress_args {
+	char *spa_name;
+	boolean_t import_done;
+} import_progress_args_t;
+
+static void *
+report_import_progress_thread(void *arg)
+{
+	int stage = ZI_STAGE_SEARCHING;
+	char pool_kstat_path[MAXPATHLEN];
+	char try_kstat_path[MAXPATHLEN];
+	char activity_test_path[MAXPATHLEN];
+	struct stat statbuf;
+	import_progress_args_t *pa = arg;
+	time_t start_time=time(NULL);
+
+	ASSERT(arg);
+
+	snprintf(pool_kstat_path, MAXPATHLEN, "/proc/spl/kstat/zfs/%s", pa->spa_name);
+	snprintf(try_kstat_path, MAXPATHLEN, "/proc/spl/kstat/zfs/%s", "$import");
+
+	while (pa->import_done == B_FALSE) {
+		if (stage < ZI_STAGE_REAL_MMP_CHECK &&
+		    stat(pool_kstat_path, &statbuf) == 0) {
+			stage = ZI_STAGE_REAL_MMP_CHECK;
+			snprintf(activity_test_path, MAXPATHLEN,
+			    "%s/activity_test", pool_kstat_path);
+		} else if (stage < ZI_STAGE_TRY_MMP_CHECK &&
+		    stat(try_kstat_path, &statbuf) == 0) {
+			stage = ZI_STAGE_TRY_MMP_CHECK;
+			snprintf(activity_test_path, MAXPATHLEN,
+			    "%s/activity_test", try_kstat_path);
+		}
+		(void) fprintf(stderr, "Importing pool %s status: %d seconds: %u\n",
+		    pa->spa_name, stage, (unsigned int)(time(NULL) - start_time));
+
+		if (pa->import_done)
+			break;
+
+		sleep(1);
+	}
+
+	return (NULL);
+}
+
+/*
  * Convert our list of pools into the definitive set of configurations.  We
  * start by picking the best config for each toplevel vdev.  Once that's done,
  * we assemble the toplevel vdevs into a full config for the pool.  We make a
@@ -964,11 +1022,16 @@ get_configs(libpc_handle_t *hdl, pool_list_t *pl, boolean_t active_ok,
 	nvlist_t *nvl;
 	boolean_t valid_top_config = B_FALSE;
 
+	pthread_t tid;
+	int progress_wanted = 1;
+	int err;
+
 	if (nvlist_alloc(&ret, 0, 0) != 0)
 		goto nomem;
 
 	for (pe = pl->pools; pe != NULL; pe = pe->pe_next) {
 		uint64_t id, max_txg = 0;
+		import_progress_args_t pa;
 
 		if (nvlist_alloc(&config, NV_UNIQUE_NAME, 0) != 0)
 			goto nomem;
@@ -1281,10 +1344,29 @@ get_configs(libpc_handle_t *hdl, pool_list_t *pl, boolean_t active_ok,
 				goto nomem;
 		}
 
+		pa.spa_name = name;
+		pa.import_done = B_FALSE;
+
+		if (progress_wanted) {
+			if ((err = pthread_create(&tid, NULL,
+			    report_import_progress_thread, &pa)) != 0) {
+				// do cleanup
+			}
+		}
 		if ((nvl = refresh_config(hdl, config)) == NULL) {
 			nvlist_free(config);
 			config = NULL;
-			continue;
+			if (progress_wanted) {
+				pa.import_done = B_TRUE;
+				(void) pthread_cancel(tid);
+				(void) pthread_join(tid, NULL);
+			}
+		}
+
+		if (progress_wanted) {
+			pa.import_done = B_TRUE;
+			(void) pthread_cancel(tid);
+			(void) pthread_join(tid, NULL);
 		}
 
 		nvlist_free(config);
