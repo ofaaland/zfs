@@ -483,6 +483,9 @@ mmp_thread(void *arg)
 	    MMP_MIN_INTERVAL)) / MAX(vdev_count_leaves(spa), 1);
 	mmp->mmp_last_write = gethrtime() - mmp->mmp_delay;
 
+	zfs_dbgmsg("pool '%s' import entered mmp_thread "
+	    "at %llu", spa_name(spa), gethrtime());
+
 	while (!mmp->mmp_thread_exiting) {
 		uint64_t mmp_fail_intervals = zfs_multihost_fail_intervals;
 		uint64_t mmp_interval = MSEC2NSEC(

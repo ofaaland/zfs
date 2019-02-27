@@ -2439,6 +2439,9 @@ spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *label,
 	uint64_t tryconfig_timestamp = 0;
 	nvlist_t *nvinfo;
 
+	zfs_dbgmsg("pool '%s' import entered spa_activity_check_required "
+	    "at %llu", spa_name(spa), gethrtime());
+
 	if (nvlist_exists(config, ZPOOL_CONFIG_LOAD_INFO)) {
 		nvinfo = fnvlist_lookup_nvlist(config, ZPOOL_CONFIG_LOAD_INFO);
 		(void) nvlist_lookup_uint64(nvinfo, ZPOOL_CONFIG_MMP_TXG,
