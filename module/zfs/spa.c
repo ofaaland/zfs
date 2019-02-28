@@ -2431,9 +2431,8 @@ vdev_count_verify_zaps(vdev_t *vd)
  */
 static boolean_t
 spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *label,
-    nvlist_t *config)
+    nvlist_t *config, uint64_t *pool_state)
 {
-	uint64_t state = 0;
 	uint64_t hostid = 0;
 	uint64_t tryconfig_txg = 0;
 	uint64_t tryconfig_timestamp = 0;
@@ -2450,7 +2449,7 @@ spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *label,
 		    &tryconfig_timestamp);
 	}
 
-	(void) nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_STATE, &state);
+	(void) nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_STATE, pool_state);
 
 	/*
 	 * Disable the MMP activity check - This is used by zdb which
@@ -2485,12 +2484,6 @@ spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *label,
 	if (hostid == spa_get_hostid())
 		return (B_FALSE);
 
-	/*
-	 * Skip the activity test when the pool was cleanly exported.
-	 */
-	if (state != POOL_STATE_ACTIVE)
-		return (B_FALSE);
-
 	return (B_TRUE);
 }
 
@@ -2499,7 +2492,8 @@ spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *label,
  * we detected activity then fail.
  */
 static int
-spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
+spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config,
+    uint64_t pool_state)
 {
 	uint64_t import_intervals = MAX(zfs_multihost_import_intervals, 1);
 	uint64_t txg = ub->ub_txg;
@@ -2550,13 +2544,18 @@ spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 	import_delay = MAX(import_delay, import_intervals *
 	    MSEC2NSEC(MAX(zfs_multihost_interval, MMP_MIN_INTERVAL)));
 
-	zfs_dbgmsg("import_delay=%llu ub_mmp_delay=%llu import_intervals=%u "
-	    "leaves=%u", import_delay, ub->ub_mmp_delay, import_intervals,
-	    vdev_count_leaves(spa));
-
 	/* Add a small random factor in case of simultaneous imports (0-25%) */
 	import_expire = gethrtime() + import_delay +
 	    (import_delay * spa_get_random(250) / 1000);
+
+	/* Racing imports of exported pool */
+	if (pool_state != POOL_STATE_ACTIVE)
+		import_expire = gethrtime() + NANOSEC * spa_get_random(1000) /
+		    1000;
+
+	zfs_dbgmsg("import_delay=%llu ub_mmp_delay=%llu import_intervals=%u "
+	    "leaves=%u pool_state=%llu", import_delay, ub->ub_mmp_delay,
+	    import_intervals, vdev_count_leaves(spa), pool_state);
 
 	while (gethrtime() < import_expire) {
 		vdev_uberblock_load(rvd, ub, &mmp_label);
@@ -2879,6 +2878,7 @@ spa_ld_select_uberblock(spa_t *spa, spa_import_type_t type)
 	nvlist_t *label;
 	uberblock_t *ub = &spa->spa_uberblock;
 	boolean_t activity_check = B_FALSE;
+	uint64_t pool_state;
 
 	/*
 	 * If we are opening the checkpointed state of the pool by
@@ -2927,7 +2927,7 @@ spa_ld_select_uberblock(spa_t *spa, spa_import_type_t type)
 	 * hosts which don't have a hostid set from importing the pool.
 	 */
 	activity_check = spa_activity_check_required(spa, ub, label,
-	    spa->spa_config);
+	    spa->spa_config, &pool_state);
 	if (activity_check) {
 		if (ub->ub_mmp_magic == MMP_MAGIC && ub->ub_mmp_delay &&
 		    spa_get_hostid() == 0) {
@@ -2937,7 +2937,8 @@ spa_ld_select_uberblock(spa_t *spa, spa_import_type_t type)
 			return (spa_vdev_err(rvd, VDEV_AUX_ACTIVE, EREMOTEIO));
 		}
 
-		int error = spa_activity_check(spa, ub, spa->spa_config);
+		int error = spa_activity_check(spa, ub, spa->spa_config,
+		    pool_state);
 		if (error) {
 			nvlist_free(label);
 			return (error);
