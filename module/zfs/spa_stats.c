@@ -887,6 +887,69 @@ spa_health_destroy(spa_t *spa)
 	mutex_destroy(&shk->lock);
 }
 
+static void *
+spa_activity_check_addr(kstat_t *ksp, loff_t n)
+{
+	return (ksp->ks_private);	/* return the spa_t */
+}
+
+static int
+spa_activity_check_data(char *buf, size_t size, void *data)
+{
+	spa_t *spa = (spa_t *)data;
+
+	(void) snprintf(buf, size, "%llu seconds remaining\n",
+	    (u_longlong_t)NSEC2SEC(spa->spa_mmp.mmp_test_ns_remaining));
+	return (0);
+}
+
+/*
+ * Return the remaining duration of an MMP activity test in
+ * /proc/spl/kstat/zfs/<pool>/activity_check.
+ *
+ * This provides a way the user can tell how long the import will take,
+ * without requiring the import ioctl to return and then be retried or
+ * similar complications.
+ */
+static void
+spa_activity_check_init(spa_t *spa)
+{
+	spa_history_kstat_t *ssh = &spa->spa_stats.activity_check;
+	char *name;
+	kstat_t *ksp;
+
+	mutex_init(&ssh->lock, NULL, MUTEX_DEFAULT, NULL);
+
+	name = kmem_asprintf("zfs/%s", spa_name(spa));
+	ksp = kstat_create(name, 0, "activity_check", "misc",
+	    KSTAT_TYPE_RAW, 0, KSTAT_FLAG_VIRTUAL);
+
+	ssh->kstat = ksp;
+	if (ksp) {
+		ksp->ks_lock = &ssh->lock;
+		ksp->ks_data = NULL;
+		ksp->ks_private = spa;
+		ksp->ks_flags |= KSTAT_FLAG_NO_HEADERS;
+		kstat_set_raw_ops(ksp, NULL, spa_activity_check_data,
+		    spa_activity_check_addr);
+		kstat_install(ksp);
+	}
+
+	strfree(name);
+}
+
+static void
+spa_activity_check_destroy(spa_t *spa)
+{
+	spa_history_kstat_t *ssh = &spa->spa_stats.activity_check;
+	kstat_t *ksp = ssh->kstat;
+	if (ksp)
+		kstat_delete(ksp);
+
+	mutex_destroy(&ssh->lock);
+}
+
+
 void
 spa_stats_init(spa_t *spa)
 {
@@ -896,6 +959,7 @@ spa_stats_init(spa_t *spa)
 	spa_io_history_init(spa);
 	spa_mmp_history_init(spa);
 	spa_state_init(spa);
+	spa_activity_check_init(spa);
 }
 
 void
@@ -907,6 +971,7 @@ spa_stats_destroy(spa_t *spa)
 	spa_read_history_destroy(spa);
 	spa_io_history_destroy(spa);
 	spa_mmp_history_destroy(spa);
+	spa_activity_check_destroy(spa);
 }
 
 #if defined(_KERNEL)
