@@ -11,6 +11,7 @@ dist_pkgdata_SCRIPTS = \
 	mmp_write_uberblocks.ksh \
 	mmp_reset_interval.ksh \
 	mmp_on_zdb.ksh \
+	mmp_activity_test_duration.ksh \
 	setup.ksh \
 	cleanup.ksh
 
