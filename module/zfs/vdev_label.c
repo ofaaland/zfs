@@ -1184,7 +1184,18 @@ vdev_uberblock_compare(const uberblock_t *ub1, const uberblock_t *ub2)
 	if (likely(cmp))
 		return (cmp);
 
-	return (AVL_CMP(ub1->ub_timestamp, ub2->ub_timestamp));
+	cmp = AVL_CMP(ub1->ub_timestamp, ub2->ub_timestamp);
+	if (likely(cmp))
+		return (cmp);
+
+	/*
+	 * XXX What if !MMP_VALID(initial_ub) and MMP_VALID(later_ub)?
+	 */
+
+	if (!MMP_VALID(ub1) && !MMP_VALID(ub2))
+		return (0);
+	else
+		return (AVL_CMP(MMP_SEQ(ub1), MMP_SEQ(ub2)));
 }
 
 struct ubl_cbdata {

@@ -2491,6 +2491,86 @@ spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *label,
 	return (B_TRUE);
 }
 
+static uint64_t
+spa_activity_check_duration(spa_t *spa, uberblock_t *ub)
+{
+	uint64_t import_intervals = MAX(zfs_multihost_import_intervals, 1);
+	uint64_t multihost_interval = MSEC2NSEC(
+	    MMP_INTERVAL_OK(zfs_multihost_interval));
+	uint64_t import_delay = MAX(NANOSEC, import_intervals *
+	    multihost_interval);
+
+	/*
+	 * Local tunables determine a minimum duration except for the case
+	 * where we know when the remote host will suspend the pool if MMP
+	 * writes do not land.
+	 */
+
+	ASSERT(MMP_IMPORT_SAFETY_FACTOR >= 100);
+
+	if (MMP_INTERVAL_VALID(ub) && MMP_FAIL_IVS_VALID(ub) &&
+	    MMP_FAIL_IVS(ub) > 0) {
+		/*
+		 * Best case; we know pool will be suspended if no MMP writes
+		 * succeed during this time, so we know we wait long enough.
+		 */
+		import_delay = MMP_FAIL_IVS(ub) * MSEC2NSEC(MMP_INTERVAL(ub)) *
+		    MMP_IMPORT_SAFETY_FACTOR / 100;
+
+		zfs_dbgmsg("fail_intvals>0 import_delay=%llu ub_mmp "
+		    "mmp_fails=%llu ub_mmp mmp_interval=%llu "
+		    "import_intervals=%u", import_delay, MMP_FAIL_IVS(ub),
+		    MMP_INTERVAL(ub), import_intervals);
+
+	} else if (MMP_INTERVAL_VALID(ub) && MMP_FAIL_IVS_VALID(ub) &&
+	    MMP_FAIL_IVS(ub) == 0) {
+		/*
+		 * We have no certainty.  However, we know that during first
+		 * MMP_INTERVAL(ub) ns a write will be attempted to every
+		 * device not already waiting for an issued write to land.  We
+		 * know that after ub_mmp_delay ns more, one of those writes
+		 * should have landed, because ub_mmp_delay decays very slowly
+		 * and so reflects the longest write delay seen recently.
+		 */
+		import_delay = MAX(import_delay, (MSEC2NSEC(MMP_INTERVAL(ub)) +
+		    ub->ub_mmp_delay) * MMP_IMPORT_SAFETY_FACTOR / 100);
+
+		zfs_dbgmsg("fail_intvals=0 import_delay=%llu ub_mmp "
+		    "mmp_interval=%llu ub_mmp_delay=%llu "
+		    "import_intervals=%u", import_delay, MMP_INTERVAL(ub),
+		    ub->ub_mmp_delay, import_intervals);
+
+	} else if (MMP_VALID(ub)) {
+		/*
+		 * Estimate zfs_multihost_interval from the host which last
+		 * imported the pool.  When there is no major delay in MMP
+		 * writes, this is:
+		 *
+		 * ub_mmp_delay * vdev_count_leaves()
+		 *
+		 * If there are major MMP write delays, zfs_multihost_interval
+		 * is smaller than this value.  However, we cannot tell the
+		 * difference as the only value we have is ub_mmp_delay.
+		 */
+		import_delay = MAX(import_delay, ((ub->ub_mmp_delay *
+		    MAX(vdev_count_leaves(spa), 1)) + ub->ub_mmp_delay) *
+		    MMP_IMPORT_SAFETY_FACTOR / 100);
+
+		zfs_dbgmsg("import_delay=%llu ub_mmp_delay=%llu "
+		    "import_intervals=%u leaves=%u", import_delay,
+		    ub->ub_mmp_delay, import_intervals,
+		    vdev_count_leaves(spa));
+	} else {
+		/* Using local tunings is the only reasonable option */
+		zfs_dbgmsg("pool last imported on non-MMP aware "
+		    "host using import_delay=%llu multihost_interval=%llu "
+		    "import_intervals=%u", import_delay, multihost_interval,
+		    import_intervals);
+	}
+
+	return (import_delay);
+}
+
 /*
  * Perform the import activity check.  If the user canceled the import or
  * we detected activity then fail.
@@ -2498,10 +2578,10 @@ spa_activity_check_required(spa_t *spa, uberblock_t *ub, nvlist_t *label,
 static int
 spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 {
-	uint64_t import_intervals = MAX(zfs_multihost_import_intervals, 1);
 	uint64_t txg = ub->ub_txg;
 	uint64_t timestamp = ub->ub_timestamp;
-	uint64_t import_delay = NANOSEC;
+	uint64_t mmp_config = ub->ub_mmp_config;
+	uint64_t import_delay;
 	hrtime_t import_expire;
 	nvlist_t *mmp_label = NULL;
 	vdev_t *rvd = spa->spa_root_vdev;
@@ -2518,7 +2598,7 @@ spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 	 * during the earlier tryimport.  If the txg recorded there is 0 then
 	 * the pool is known to be active on another host.
 	 *
-	 * Otherwise, the pool might be in use on another node.  Check for
+	 * Otherwise, the pool might be in use on another host.  Check for
 	 * changes in the uberblocks on disk if necessary.
 	 */
 	if (nvlist_exists(config, ZPOOL_CONFIG_LOAD_INFO)) {
@@ -2533,23 +2613,7 @@ spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 		}
 	}
 
-	/*
-	 * Preferentially use the zfs_multihost_interval from the node which
-	 * last imported the pool.  This value is stored in an MMP uberblock as.
-	 *
-	 * ub_mmp_delay * vdev_count_leaves() == zfs_multihost_interval
-	 */
-	if (ub->ub_mmp_magic == MMP_MAGIC && ub->ub_mmp_delay)
-		import_delay = MAX(import_delay, import_intervals *
-		    ub->ub_mmp_delay * MAX(vdev_count_leaves(spa), 1));
-
-	/* Apply a floor using the local default values. */
-	import_delay = MAX(import_delay, import_intervals *
-	    MSEC2NSEC(MAX(zfs_multihost_interval, MMP_MIN_INTERVAL)));
-
-	zfs_dbgmsg("import_delay=%llu ub_mmp_delay=%llu import_intervals=%u "
-	    "leaves=%u", import_delay, ub->ub_mmp_delay, import_intervals,
-	    vdev_count_leaves(spa));
+	import_delay = spa_activity_check_duration(spa, ub);
 
 	/* Add a small random factor in case of simultaneous imports (0-25%) */
 	import_expire = gethrtime() + import_delay +
@@ -2558,7 +2622,15 @@ spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 	while (gethrtime() < import_expire) {
 		vdev_uberblock_load(rvd, ub, &mmp_label);
 
-		if (txg != ub->ub_txg || timestamp != ub->ub_timestamp) {
+		if (txg != ub->ub_txg || timestamp != ub->ub_timestamp ||
+		    mmp_config != ub->ub_mmp_config) {
+			zfs_dbgmsg("multihost activity detected "
+			    "txg %llx ub_txg  %llx "
+			    "timestamp %llx ub_timestamp  %llx "
+			    "mmp_config %llx ub_mmp_config %llx\n",
+			    txg, ub->ub_txg, timestamp, ub->ub_timestamp,
+			    mmp_config, ub->ub_mmp_config);
+
 			error = SET_ERROR(EREMOTEIO);
 			break;
 		}

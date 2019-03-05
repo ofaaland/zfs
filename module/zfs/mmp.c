@@ -49,40 +49,68 @@
  * Uberblocks written by the txg_sync thread always go into the first
  * (N-MMP_BLOCKS_PER_LABEL) slots, the remaining slots are reserved for MMP.
  * They are used to hold uberblocks which are exactly the same as the last
- * synced uberblock except that the ub_timestamp is frequently updated.
- * Like all other uberblocks, the slot is written with an embedded checksum,
- * and slots with invalid checksums are ignored.  This provides the
+ * synced uberblock except that the ub_timestamp and mmp_config are frequently
+ * updated.  Like all other uberblocks, the slot is written with an embedded
+ * checksum, and slots with invalid checksums are ignored.  This provides the
  * "heartbeat", with no risk of overwriting good uberblocks that must be
  * preserved, e.g. previous txgs and associated block pointers.
  *
- * Two optional fields are added to uberblock structure: ub_mmp_magic and
- * ub_mmp_delay.  The magic field allows zfs to tell whether ub_mmp_delay is
- * valid.  The delay field is a decaying average of the amount of time between
- * completion of successive MMP writes, in nanoseconds.  It is used to predict
- * how long the import must wait to detect activity in the pool, before
- * concluding it is not in use.
+ * Three optional fields are added to uberblock structure; ub_mmp_magic,
+ * ub_mmp_config, and ub_mmp_delay.  The ub_mmp_magic value allows zfs to tell
+ * whether the other ub_mmp_* fields are valid.  The ub_mmp_config field tells
+ * the importing host the settings of zfs_multihost_interval and
+ * zfs_multihost_fail_intervals on the host which last had (or currently has)
+ * the pool imported.  These determine how long a host must wait to detect
+ * activity in the pool, before concluding the pool is not in use.  The
+ * mmp_delay field is a decaying average of the amount of time between
+ * completion of successive MMP writes, in nanoseconds.  It indicates whether
+ * MMP is enabled.
  *
  * During import an activity test may now be performed to determine if
  * the pool is in use.  The activity test is typically required if the
  * ZPOOL_CONFIG_HOSTID does not match the system hostid, the pool state is
  * POOL_STATE_ACTIVE, and the pool is not a root pool.
  *
- * The activity test finds the "best" uberblock (highest txg & timestamp),
- * waits some time, and then finds the "best" uberblock again.  If the txg
- * and timestamp in both "best" uberblocks do not match, the pool is in use
- * by another host and the import fails.  Since the granularity of the
- * timestamp is in seconds this activity test must take a bare minimum of one
- * second.  In order to assure the accuracy of the activity test, the default
- * values result in an activity test duration of 10x the mmp write interval.
+ * The activity test finds the "best" uberblock (highest txg, timestamp, and, if
+ * ub_mmp_magic is valid, sequence number from ub_mmp_config).  It then waits
+ * some time, and finds the "best" uberblock again.  If any of the mentioned
+ * fields have different values in the newly read uberblock, the pool is in use
+ * by another host and the import fails.  In order to assure the accuracy of the
+ * activity test, the default values result in an activity test duration of 10x
+ * the mmp write interval.
  *
- * The "zpool import"  activity test can be expected to take a minimum time of
- * zfs_multihost_import_intervals * zfs_multihost_interval milliseconds.  If the
- * "best" uberblock has a valid ub_mmp_delay field, then the duration of the
- * test may take longer if MMP writes were occurring less frequently than
- * expected.  Additionally, the duration is then extended by a random 25% to
- * attempt to to detect simultaneous imports.  For example, if both partner
- * hosts are rebooted at the same time and automatically attempt to import the
- * pool.
+ * The duration of the "zpool import" activity test depends on the information
+ * available in the "best" uberblock:
+ * 1) If ub_mmp_magic is valid and ub_mmp_config fail_intervals > 0:
+ *    ub_mmp_config fail_intervals * ub_mmp_config multihost_interval * 2
+ *
+ *    In this case, a weak guarantee is provided.  Since the host which last had
+ *    the pool imported will suspend the pool if no mmp writes land within
+ *    fail_intervals * multihost_interval ms, the absense of writes during that
+ *    time means either the pool is not imported, or it is imported but the pool
+ *    is suspended and no further writes will occur.
+ *
+ *    Note that resuming the suspended pool invalidates this gurantee.
+ *
+ * 2) If ub_mmp_magic is valid but fail_intervals is invalid, or == 0:
+ *    (ub_mmp_config multihost_interval + ub_mmp_delay) * 2
+ *
+ *    In this case no guarantee can provided.  However, as long as some devices
+ *    are healthy and connected, it is likely that at least one write will land
+ *    within (multihost_interval + mmp_delay) because multihost_interval is
+ *    enough time for a write to be attempted to each leaf vdev, and mmp_delay
+ *    is enough for one to land, based on past delays.
+ *
+ * 3) Otherwise, ub_mmp_magic is invalid:
+ *    zfs_multihost_import_intervals * zfs_multihost_interval ms
+ *
+ *    In this case local tunables are used.  By default this product = 10s, long
+ *    enough for a pool with any activity at all to write at least one
+ *    uberblock.  No guarantee can be provided.
+ *
+ * Additionally, the duration is then extended by a random 25% to attempt to to
+ * detect simultaneous imports.  For example, if both partner hosts are rebooted
+ * at the same time and automatically attempt to import the pool.
  */
 
 /*
@@ -90,10 +118,9 @@
  * 'multihost' pool property is on.  This is one factor used to determine the
  * length of the activity check during import.
  *
- * The mmp write period is zfs_multihost_interval / leaf-vdevs milliseconds.
- * This means that on average an mmp write will be issued for each leaf vdev
- * every zfs_multihost_interval milliseconds.  In practice, the observed period
- * can vary with the I/O load and this observed value is the delay which is
+ * On average an mmp write will be issued for each leaf vdev every
+ * zfs_multihost_interval milliseconds.  In practice, the observed period can
+ * vary with the I/O load and this observed value is the ub_mmp_delay which is
  * stored in the uberblock.  The minimum allowed value is 100 ms.
  */
 ulong_t zfs_multihost_interval = MMP_DEFAULT_INTERVAL;
@@ -108,19 +135,21 @@ ulong_t zfs_multihost_interval = MMP_DEFAULT_INTERVAL;
 uint_t zfs_multihost_import_intervals = MMP_DEFAULT_IMPORT_INTERVALS;
 
 /*
- * Controls the behavior of the pool when mmp write failures are detected.
+ * Controls the behavior of the pool when mmp write failures or delays are
+ * detected.
  *
- * When zfs_multihost_fail_intervals = 0 then mmp write failures are ignored.
- * The failures will still be reported to the ZED which depending on its
- * configuration may take action such as suspending the pool or taking a
+ * When zfs_multihost_fail_intervals = 0, mmp write failures or delays are
+ * ignored.  The failures will still be reported to the ZED which depending on
+ * its configuration may take action such as suspending the pool or taking a
  * device offline.
  *
- * When zfs_multihost_fail_intervals > 0 then sequential mmp write failures will
- * cause the pool to be suspended.  This occurs when
- * zfs_multihost_fail_intervals * zfs_multihost_interval milliseconds have
- * passed since the last successful mmp write.  This guarantees the activity
- * test will see mmp writes if the
- * pool is imported.
+ * When zfs_multihost_fail_intervals > 0, the pool will be suspended if
+ * zfs_multihost_fail_intervals * zfs_multihost_interval milliseconds pass
+ * without a successful mmp write.  This guarantees the activity test will see
+ * mmp writes if the pool is imported.  A value of 1 is ignored and treated as
+ * if it was set to 2, because a single leaf vdev pool will issue a write once
+ * per multihost_interval and thus any variation in latency would cause the
+ * pool to be suspended.
  */
 uint_t zfs_multihost_fail_intervals = MMP_DEFAULT_FAIL_INTERVALS;
 
@@ -136,6 +165,18 @@ mmp_init(spa_t *spa)
 	cv_init(&mmp->mmp_thread_cv, NULL, CV_DEFAULT, NULL);
 	mutex_init(&mmp->mmp_io_lock, NULL, MUTEX_DEFAULT, NULL);
 	mmp->mmp_kstat_id = 1;
+
+	/*
+	 * mmp_write_done() calculates mmp_delay based on prior mmp_delay and
+	 * the elapsed time since the last write.  For the first mmp write,
+	 * there is no "last write", so we start with fake non-zero values.
+	 */
+	mmp->mmp_last_write = gethrtime();
+	mmp->mmp_interval = MSEC2NSEC(MMP_INTERVAL_OK(zfs_multihost_interval));
+	mmp->mmp_delay = mmp->mmp_interval;
+	mmp->mmp_fail_intervals = MMP_FAIL_INTVS_OK(
+	    zfs_multihost_fail_intervals);
+	mmp->mmp_fail_ns = mmp->mmp_fail_intervals * mmp->mmp_interval;
 }
 
 void
@@ -173,10 +214,10 @@ mmp_thread_start(spa_t *spa)
 	if (spa_writeable(spa)) {
 		mutex_enter(&mmp->mmp_thread_lock);
 		if (!mmp->mmp_thread) {
-			dprintf("mmp_thread_start pool %s\n",
-			    spa->spa_name);
 			mmp->mmp_thread = thread_create(NULL, 0, mmp_thread,
 			    spa, 0, &p0, TS_RUN, defclsyspri);
+			zfs_dbgmsg("MMP thread started pool '%s' "
+			    "gethrtime %llu", spa_name(spa), gethrtime());
 		}
 		mutex_exit(&mmp->mmp_thread_lock);
 	}
@@ -195,6 +236,8 @@ mmp_thread_stop(spa_t *spa)
 		cv_wait(&mmp->mmp_thread_cv, &mmp->mmp_thread_lock);
 	}
 	mutex_exit(&mmp->mmp_thread_lock);
+	zfs_dbgmsg("MMP thread stopped pool '%s' gethrtime %llu",
+	    spa_name(spa), gethrtime());
 
 	ASSERT(mmp->mmp_thread == NULL);
 	mmp->mmp_thread_exiting = 0;
@@ -278,6 +321,9 @@ mmp_random_leaf(vdev_t *in_vd, vdev_t **out_vd)
 	if (error_mask == 0)
 		*out_vd = vd;
 
+	zfs_dbgmsg("MMP error choosing leaf pool '%s' gethrtime %llu error %x",
+	    spa_name(in_vd->vdev_spa), gethrtime(), error_mask);
+
 	return (error_mask);
 }
 
@@ -305,32 +351,32 @@ mmp_random_leaf(vdev_t *in_vd, vdev_t **out_vd)
 static void
 mmp_delay_update(spa_t *spa, boolean_t write_completed)
 {
-	mmp_thread_t *mts = &spa->spa_mmp;
-	hrtime_t delay = gethrtime() - mts->mmp_last_write;
+	mmp_thread_t *mmp = &spa->spa_mmp;
+	hrtime_t delay = gethrtime() - mmp->mmp_last_write;
 
-	ASSERT(MUTEX_HELD(&mts->mmp_io_lock));
+	ASSERT(MUTEX_HELD(&mmp->mmp_io_lock));
 
 	if (spa_multihost(spa) == B_FALSE) {
-		mts->mmp_delay = 0;
+		mmp->mmp_delay = 0;
 		return;
 	}
 
-	if (delay > mts->mmp_delay)
-		mts->mmp_delay = delay;
+	if (delay > mmp->mmp_delay)
+		mmp->mmp_delay = delay;
 
-	if (write_completed == B_FALSE)
-		return;
+	if (write_completed == B_TRUE) {
 
-	mts->mmp_last_write = gethrtime();
+		mmp->mmp_last_write = gethrtime();
 
-	/*
-	 * strictly less than, in case delay was changed above.
-	 */
-	if (delay < mts->mmp_delay) {
-		hrtime_t min_delay = MSEC2NSEC(zfs_multihost_interval) /
-		    MAX(1, vdev_count_leaves(spa));
-		mts->mmp_delay = MAX(((delay + mts->mmp_delay * 127) / 128),
-		    min_delay);
+		/*
+		 * strictly less than, in case delay was changed above.
+		 */
+		if (delay < mmp->mmp_delay) {
+			hrtime_t min_delay = mmp->mmp_interval /
+			    MAX(1, vdev_count_leaves(spa));
+			mmp->mmp_delay = MAX(min_delay,
+			    ((delay + mmp->mmp_delay * 127) / 128));
+		}
 	}
 }
 
@@ -371,6 +417,7 @@ mmp_update_uberblock(spa_t *spa, uberblock_t *ub)
 
 	mutex_enter(&mmp->mmp_io_lock);
 	mmp->mmp_ub = *ub;
+	mmp->mmp_seq = 0;
 	mmp->mmp_ub.ub_timestamp = gethrestime_sec();
 	mmp_delay_update(spa, B_TRUE);
 	mutex_exit(&mmp->mmp_io_lock);
@@ -395,8 +442,9 @@ mmp_write_uberblock(spa_t *spa)
 	spa_config_enter(spa, SCL_STATE, mmp_tag, RW_READER);
 	lock_acquire_time = gethrtime() - lock_acquire_time;
 	if (lock_acquire_time > (MSEC2NSEC(MMP_MIN_INTERVAL) / 10))
-		zfs_dbgmsg("SCL_STATE acquisition took %llu ns\n",
-		    (u_longlong_t)lock_acquire_time);
+		zfs_dbgmsg("MMP SCL_STATE acquisition pool '%s' took %llu ns "
+		    "gethrtime %llu", spa_name(spa), lock_acquire_time,
+		    gethrtime());
 
 	error = mmp_random_leaf(spa->spa_root_vdev, &vd);
 
@@ -435,6 +483,10 @@ mmp_write_uberblock(spa_t *spa)
 	ub->ub_timestamp = gethrestime_sec();
 	ub->ub_mmp_magic = MMP_MAGIC;
 	ub->ub_mmp_delay = mmp->mmp_delay;
+	ub->ub_mmp_config = MMP_SEQ_SET(ub, mmp->mmp_seq) |
+	    MMP_INTERVAL_SET(ub, MMP_INTERVAL_OK(zfs_multihost_interval)) |
+	    MMP_FAIL_IVS_SET(ub, MMP_FAIL_INTVS_OK(
+	    zfs_multihost_fail_intervals));
 	vd->vdev_mmp_pending = gethrtime();
 	vd->vdev_mmp_kstat_id = mmp->mmp_kstat_id;
 
@@ -443,6 +495,7 @@ mmp_write_uberblock(spa_t *spa)
 	abd_zero(ub_abd, VDEV_UBERBLOCK_SIZE(vd));
 	abd_copy_from_buf(ub_abd, ub, sizeof (uberblock_t));
 
+	mmp->mmp_seq++;
 	mmp->mmp_kstat_id++;
 	mutex_exit(&mmp->mmp_io_lock);
 
@@ -465,38 +518,65 @@ mmp_thread(void *arg)
 {
 	spa_t *spa = (spa_t *)arg;
 	mmp_thread_t *mmp = &spa->spa_mmp;
-	boolean_t last_spa_suspended = spa_suspended(spa);
-	boolean_t last_spa_multihost = spa_multihost(spa);
+	boolean_t suspended = spa_suspended(spa);
+	boolean_t multihost = spa_multihost(spa);
+	boolean_t last_spa_suspended = suspended;
+	boolean_t last_spa_multihost = multihost;
+	uint64_t last_mmp_interval = mmp->mmp_interval;
+	uint32_t last_mmp_fail_intervals = mmp->mmp_fail_intervals;
 	callb_cpr_t cpr;
-	hrtime_t max_fail_ns = zfs_multihost_fail_intervals *
-	    MSEC2NSEC(MAX(zfs_multihost_interval, MMP_MIN_INTERVAL));
+	int skip_wait = 0;
 
 	mmp_thread_enter(mmp, &cpr);
 
-	/*
-	 * The mmp_write_done() function calculates mmp_delay based on the
-	 * prior value of mmp_delay and the elapsed time since the last write.
-	 * For the first mmp write, there is no "last write", so we start
-	 * with fake, but reasonable, default non-zero values.
-	 */
-	mmp->mmp_delay = MSEC2NSEC(MAX(zfs_multihost_interval,
-	    MMP_MIN_INTERVAL)) / MAX(vdev_count_leaves(spa), 1);
-	mmp->mmp_last_write = gethrtime() - mmp->mmp_delay;
-
 	while (!mmp->mmp_thread_exiting) {
-		uint64_t mmp_fail_intervals = zfs_multihost_fail_intervals;
-		uint64_t mmp_interval = MSEC2NSEC(
-		    MAX(zfs_multihost_interval, MMP_MIN_INTERVAL));
-		boolean_t suspended = spa_suspended(spa);
-		boolean_t multihost = spa_multihost(spa);
-		hrtime_t next_time;
+		hrtime_t next_time = gethrtime() +
+		    MSEC2NSEC(MMP_DEFAULT_INTERVAL);
+		int leaves = MAX(vdev_count_leaves(spa), 1);
+
+		/* Detect changes in tunables or state */
+
+		last_spa_suspended = suspended;
+		last_spa_multihost = multihost;
+		suspended = spa_suspended(spa);
+		multihost = spa_multihost(spa);
+
+		mutex_enter(&mmp->mmp_io_lock);
+
+		last_mmp_interval = mmp->mmp_interval;
+		last_mmp_fail_intervals = mmp->mmp_fail_intervals;
+		mmp->mmp_interval = MSEC2NSEC(MMP_INTERVAL_OK(
+		    zfs_multihost_interval));
+		mmp->mmp_fail_intervals = MMP_FAIL_INTVS_OK(
+		    zfs_multihost_fail_intervals);
+
+		/* Smooth so pool is not suspended when reducing tunables */
+		if (mmp->mmp_fail_intervals * mmp->mmp_interval <
+		    mmp->mmp_fail_ns)
+			mmp->mmp_fail_ns = (mmp->mmp_fail_ns * 31 +
+			    mmp->mmp_fail_intervals * mmp->mmp_interval) / 32;
+		else
+			mmp->mmp_fail_ns = mmp->mmp_fail_intervals *
+			    mmp->mmp_interval;
+
+		if (mmp->mmp_interval != last_mmp_interval ||
+		    mmp->mmp_fail_intervals != last_mmp_fail_intervals) {
+			skip_wait += leaves;
+			zfs_dbgmsg("MMP interval change pool '%s' "
+			    "gethrtime %llu last_mmp_interval %llu "
+			    "mmp_interval %llu last_mmp_fail_intervals %u "
+			    "mmp_fail_intervals %u mmp_fail_ns %llu "
+			    "skip_wait %d leaves %d", spa_name(spa),
+			    gethrtime(), last_mmp_interval, mmp->mmp_interval,
+			    last_mmp_fail_intervals, mmp->mmp_fail_intervals,
+			    mmp->mmp_fail_ns, skip_wait,
+			    leaves);
+		}
 
 		if (multihost)
-			next_time = gethrtime() + mmp_interval /
-			    MAX(vdev_count_leaves(spa), 1);
-		else
-			next_time = gethrtime() +
-			    MSEC2NSEC(MMP_DEFAULT_INTERVAL);
+			next_time = gethrtime() + mmp->mmp_interval / leaves;
+
+		mutex_exit(&mmp->mmp_io_lock);
 
 		/*
 		 * MMP off => on, or suspended => !suspended:
@@ -505,8 +585,14 @@ mmp_thread(void *arg)
 		 */
 		if ((!last_spa_multihost && multihost) ||
 		    (last_spa_suspended && !suspended)) {
+			zfs_dbgmsg("MMP state change pool '%s': gethrtime %llu "
+			    "last_spa_multihost %u multihost %u "
+			    "last_spa_suspended %u suspended %u",
+			    spa_name(spa), last_spa_multihost, multihost,
+			    last_spa_suspended, suspended);
 			mutex_enter(&mmp->mmp_io_lock);
 			mmp->mmp_last_write = gethrtime();
+			mmp->mmp_delay = mmp->mmp_interval;
 			mutex_exit(&mmp->mmp_io_lock);
 		}
 
@@ -519,37 +605,38 @@ mmp_thread(void *arg)
 			mmp->mmp_delay = 0;
 			mutex_exit(&mmp->mmp_io_lock);
 		}
-		last_spa_multihost = multihost;
-		last_spa_suspended = suspended;
-
-		/*
-		 * Smooth max_fail_ns when its factors are decreased, because
-		 * making (max_fail_ns < mmp_interval) results in the pool being
-		 * immediately suspended before writes can occur at the new
-		 * higher frequency.
-		 */
-		if ((mmp_interval * mmp_fail_intervals) < max_fail_ns) {
-			max_fail_ns = ((31 * max_fail_ns) + (mmp_interval *
-			    mmp_fail_intervals)) / 32;
-		} else {
-			max_fail_ns = mmp_interval * mmp_fail_intervals;
-		}
 
 		/*
 		 * Suspend the pool if no MMP write has succeeded in over
-		 * mmp_interval * mmp_fail_intervals nanoseconds.
+		 * mmp->mmp_interval * mmp_fail_intervals nanoseconds.
 		 */
-		if (!suspended && mmp_fail_intervals && multihost &&
-		    (gethrtime() - mmp->mmp_last_write) > max_fail_ns) {
+		if (multihost && !suspended && mmp->mmp_fail_intervals &&
+		    (gethrtime() - mmp->mmp_last_write) > mmp->mmp_fail_ns) {
+			zfs_dbgmsg("MMP suspending pool '%s': gethrtime %llu "
+			    "mmp_last_write %llu mmp_interval %llu "
+			    "mmp_fail_intervals %llu mmp->mmp_fail_ns %llu",
+			    spa_name(spa), (u_longlong_t)gethrtime(),
+			    (u_longlong_t)mmp->mmp_last_write,
+			    (u_longlong_t)mmp->mmp_interval,
+			    (u_longlong_t)mmp->mmp_fail_intervals,
+			    (u_longlong_t)mmp->mmp_fail_ns);
 			cmn_err(CE_WARN, "MMP writes to pool '%s' have not "
-			    "succeeded in over %llus; suspending pool",
+			    "succeeded in over %llu ms; suspending pool. "
+			    "Hrtime %llu",
 			    spa_name(spa),
-			    NSEC2SEC(gethrtime() - mmp->mmp_last_write));
+			    NSEC2MSEC(gethrtime() - mmp->mmp_last_write),
+			    gethrtime());
 			zio_suspend(spa, NULL, ZIO_SUSPEND_MMP);
 		}
 
 		if (multihost && !suspended)
 			mmp_write_uberblock(spa);
+
+		if (skip_wait > 0) {
+			next_time = gethrtime() + MSEC2NSEC(MMP_MIN_INTERVAL) /
+			    leaves;
+			skip_wait--;
+		}
 
 		CALLB_CPR_SAFE_BEGIN(&cpr);
 		(void) cv_timedwait_sig_hires(&mmp->mmp_thread_cv,
