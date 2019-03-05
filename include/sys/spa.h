@@ -921,7 +921,7 @@ extern int spa_mmp_history_set(spa_t *spa, uint64_t mmp_kstat_id, int io_error,
     hrtime_t duration);
 extern void spa_mmp_history_add(spa_t *spa, uint64_t txg, uint64_t timestamp,
     uint64_t mmp_delay, vdev_t *vd, int label, uint64_t mmp_kstat_id,
-    int error);
+    int error, uint64_t mmp_interval, uint32_t mmp_fail_intervals);
 
 /* Pool configuration locks */
 extern int spa_config_tryenter(spa_t *spa, int locks, void *tag, krw_t rw);
