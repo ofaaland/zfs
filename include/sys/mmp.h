@@ -53,6 +53,7 @@ typedef struct mmp_thread {
 	uint32_t	mmp_fail_intervals;	/* processed fail intervals */
 	uint64_t	mmp_interval;	/* processed multihost interval (ns) */
 	hrtime_t	mmp_fail_ns; /* max time without successful write ns */
+	uint64_t	mmp_test_ns_remaining;	/* activ. test time left (ns) */
 } mmp_thread_t;
 
 

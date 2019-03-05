@@ -2620,6 +2620,8 @@ spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 	    (import_delay * spa_get_random(250) / 1000);
 
 	while (gethrtime() < import_expire) {
+		spa->spa_mmp.mmp_test_ns_remaining = import_expire -
+		    gethrtime();
 		vdev_uberblock_load(rvd, ub, &mmp_label);
 
 		if (txg != ub->ub_txg || timestamp != ub->ub_timestamp ||
@@ -2640,6 +2642,8 @@ spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 			mmp_label = NULL;
 		}
 
+		spa->spa_mmp.mmp_test_ns_remaining = import_expire -
+		    gethrtime();
 		error = cv_timedwait_sig(&cv, &mtx, ddi_get_lbolt() + hz);
 		if (error != -1) {
 			error = SET_ERROR(EINTR);
@@ -2648,6 +2652,7 @@ spa_activity_check(spa_t *spa, uberblock_t *ub, nvlist_t *config)
 		error = 0;
 	}
 
+	spa->spa_mmp.mmp_test_ns_remaining = 0;
 out:
 	mutex_exit(&mtx);
 	mutex_destroy(&mtx);

@@ -887,6 +887,7 @@ typedef struct spa_stats {
 	spa_history_kstat_t	io_history;
 	spa_history_list_t	mmp_history;
 	spa_history_kstat_t	state;		/* pool state */
+	spa_history_kstat_t	activity_test; /* mmp test duration */
 } spa_stats_t;
 
 typedef enum txg_state {
