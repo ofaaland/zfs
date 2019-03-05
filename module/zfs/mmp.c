@@ -418,7 +418,8 @@ mmp_write_uberblock(spa_t *spa)
 			mmp->mmp_skip_error = error;
 			spa_mmp_history_add(spa, mmp->mmp_ub.ub_txg,
 			    gethrestime_sec(), mmp->mmp_delay, NULL, 0,
-			    mmp->mmp_kstat_id++, error);
+			    mmp->mmp_kstat_id++, error, mmp->mmp_interval,
+			    mmp->mmp_fail_intervals);
 		}
 		mutex_exit(&mmp->mmp_io_lock);
 		spa_config_exit(spa, SCL_STATE, mmp_tag);
@@ -455,7 +456,8 @@ mmp_write_uberblock(spa_t *spa)
 	    flags | ZIO_FLAG_DONT_PROPAGATE);
 
 	(void) spa_mmp_history_add(spa, ub->ub_txg, ub->ub_timestamp,
-	    ub->ub_mmp_delay, vd, label, vd->vdev_mmp_kstat_id, 0);
+	    ub->ub_mmp_delay, vd, label, vd->vdev_mmp_kstat_id, 0,
+	    MMP_INTERVAL(ub), MMP_FAIL_IVS(ub));
 
 	zio_nowait(zio);
 }

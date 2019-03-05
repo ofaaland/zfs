@@ -616,10 +616,11 @@ spa_io_history_destroy(spa_t *spa)
  *   For MMP writes skipped, an entry represents a span of time when
  *      writes were skipped for same reason (error from mmp_random_leaf).
  *      Differences are:
- *      timestamp	time first write skipped, if >1 skipped in a row
+ *      timestamp	UTC time first skipped, if >1 skipped in a row
+ *      timestamp_ns	gethrtime first skipped, if >1 skipped in a row
  *      mmp_delay	delay value at timestamp
  *      vdev_guid	number of writes skipped
- *      io_error	one of enum mmp_error
+ *      io_error	one of enum mmp_vdev_state_flag
  *      duration	time span (ns) of skipped writes
  */
 
@@ -627,12 +628,15 @@ typedef struct spa_mmp_history {
 	uint64_t	mmp_node_id;	/* unique # for updates */
 	uint64_t	txg;		/* txg of last sync */
 	uint64_t	timestamp;	/* UTC time MMP write issued */
-	uint64_t	mmp_delay;	/* mmp_thread.mmp_delay at timestamp */
+	hrtime_t	timestamp_ns;	/* gethrtime MMP write issued */
+	uint64_t	mmp_delay;	/* mmp_delay at timestamp */
 	uint64_t	vdev_guid;	/* unique ID of leaf vdev */
+	uint64_t	mmp_interval;	/* mmp_interval at timestamp */
+	uint32_t	mmp_fail_intervals; /* mmp_fail_intervals at time */
+	boolean_t	error_start;	/* TRUE if skipped write */
 	char		*vdev_path;
 	int		vdev_label;	/* vdev label */
 	int		io_error;	/* error status of MMP write */
-	hrtime_t	error_start;	/* hrtime of start of error period */
 	hrtime_t	duration;	/* time from submission to completion */
 	procfs_list_node_t	smh_node;
 } spa_mmp_history_t;
@@ -640,9 +644,10 @@ typedef struct spa_mmp_history {
 static int
 spa_mmp_history_show_header(struct seq_file *f)
 {
-	seq_printf(f, "%-10s %-10s %-10s %-6s %-10s %-12s %-24s "
-	    "%-10s %s\n", "id", "txg", "timestamp", "error", "duration",
-	    "mmp_delay", "vdev_guid", "vdev_label", "vdev_path");
+	seq_printf(f, "%-10s %-10s %-10s %-6s %-10s %-12s %-12s %-12s %-12s "
+	    "%-24s %-10s %s\n", "id", "txg", "timestamp", "error", "duration",
+	    "mmp_delay", "timestamp_ns", "mmp_interval", "fail_intrvls",
+	    "vdev_guid", "vdev_label", "vdev_path");
 	return (0);
 }
 
@@ -650,17 +655,19 @@ static int
 spa_mmp_history_show(struct seq_file *f, void *data)
 {
 	spa_mmp_history_t *smh = (spa_mmp_history_t *)data;
-	char skip_fmt[] = "%-10llu %-10llu %10llu %#6llx %10lld %12llu %-24llu "
-	    "%-10lld %s\n";
-	char write_fmt[] = "%-10llu %-10llu %10llu %6lld %10lld %12llu %-24llu "
-	    "%-10lld %s\n";
+	char skip_fmt[] = "%-10llu %-10llu %10llu %#6llx %10lld %12llu %12llu "
+	    "%12llu %12llu %-24llu %-10lld %s\n";
+	char write_fmt[] = "%-10llu %-10llu %10llu %6lld %10lld %12llu %12llu "
+	    "%12llu %12llu %-24llu %-10lld %s\n";
 
 	seq_printf(f, (smh->error_start ? skip_fmt : write_fmt),
 	    (u_longlong_t)smh->mmp_node_id, (u_longlong_t)smh->txg,
 	    (u_longlong_t)smh->timestamp, (longlong_t)smh->io_error,
 	    (longlong_t)smh->duration, (u_longlong_t)smh->mmp_delay,
-	    (u_longlong_t)smh->vdev_guid, (u_longlong_t)smh->vdev_label,
-	    (smh->vdev_path ? smh->vdev_path : "-"));
+	    (u_longlong_t)smh->timestamp_ns, (longlong_t)smh->mmp_interval,
+	    (u_longlong_t)smh->mmp_fail_intervals, (u_longlong_t)smh->vdev_guid,
+	    (u_longlong_t)smh->vdev_label, (smh->vdev_path ? smh->vdev_path :
+	    "-"));
 
 	return (0);
 }
@@ -746,7 +753,7 @@ spa_mmp_history_set_skip(spa_t *spa, uint64_t mmp_node_id)
 	    smh = list_prev(&shl->procfs_list.pl_list, smh)) {
 		if (smh->mmp_node_id == mmp_node_id) {
 			ASSERT3U(smh->io_error, !=, 0);
-			smh->duration = gethrtime() - smh->error_start;
+			smh->duration = gethrtime() - smh->timestamp_ns;
 			smh->vdev_guid++;
 			error = 0;
 			break;
@@ -796,7 +803,7 @@ spa_mmp_history_set(spa_t *spa, uint64_t mmp_node_id, int io_error,
 void
 spa_mmp_history_add(spa_t *spa, uint64_t txg, uint64_t timestamp,
     uint64_t mmp_delay, vdev_t *vd, int label, uint64_t mmp_node_id,
-    int error)
+    int error, uint64_t mmp_interval, uint32_t mmp_fail_intervals)
 {
 	spa_history_list_t *shl = &spa->spa_stats.mmp_history;
 	spa_mmp_history_t *smh;
@@ -806,8 +813,11 @@ spa_mmp_history_add(spa_t *spa, uint64_t txg, uint64_t timestamp,
 
 	smh = kmem_zalloc(sizeof (spa_mmp_history_t), KM_SLEEP);
 	smh->txg = txg;
+	smh->timestamp_ns = gethrtime();
 	smh->timestamp = timestamp;
 	smh->mmp_delay = mmp_delay;
+	smh->mmp_interval = mmp_interval;
+	smh->mmp_fail_intervals = mmp_fail_intervals;
 	if (vd) {
 		smh->vdev_guid = vd->vdev_guid;
 		if (vd->vdev_path)
@@ -818,7 +828,7 @@ spa_mmp_history_add(spa_t *spa, uint64_t txg, uint64_t timestamp,
 
 	if (error) {
 		smh->io_error = error;
-		smh->error_start = gethrtime();
+		smh->error_start = B_TRUE;
 		smh->vdev_guid = 1;
 	}
 
