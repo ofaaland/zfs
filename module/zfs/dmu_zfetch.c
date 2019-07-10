@@ -199,6 +199,18 @@ dmu_zfetch_stream_create(zfetch_t *zf, uint64_t blkid)
 }
 
 int dmu_zfetch_out_of_range = 0;
+
+static inline void
+toss4454_warn(char *constraint, uint64_t blkid, uint64_t nblks,
+	uint64_t orig_zs_blkid, uint64_t orig_zs_pf_blkid,
+	uint64_t orig_zs_ipf_blkid, int max_dist_blks) {
+	cmn_err(CE_WARN, "toss-4454 constraint %s: blkid %llu nblks %llu "
+	    "orig_zs_blkid %llu orig_zs_pf_blkid %llu orig_zs_ipf_blkid %llu ",
+	    blkid, nblks, orig_zs_blkid, orig_zs_pf_blkid, orig_zs_ipf_blkid,
+	    max_dist_blks);
+	dmu_zfetch_out_of_range = 1;
+}
+
 /*
  * This is the predictive prefetch entry point.  It associates dnode access
  * specified with blkid and nblks arguments with prefetch stream, predicts
@@ -273,6 +285,10 @@ dmu_zfetch(zfetch_t *zf, uint64_t blkid, uint64_t nblks, boolean_t fetch_data)
 		return;
 	}
 
+	uint64_t orig_zs_blkid = zs->zs_blkid;
+	uint64_t orig_zs_pf_blkid = zs->zs_pf_blkid;
+	uint64_t orig_zs_ipf_blkid = zs->zs_ipf_blkid;
+
 	/*
 	 * This access was to a block that we issued a prefetch for on
 	 * behalf of this stream. Issue further prefetches for this stream.
@@ -300,7 +316,27 @@ dmu_zfetch(zfetch_t *zf, uint64_t blkid, uint64_t nblks, boolean_t fetch_data)
 		 */
 		pf_ahead_blks = zs->zs_pf_blkid - blkid + nblks;
 		max_blks = max_dist_blks - (pf_start - end_of_access_blkid);
+
+		if (dmu_zfetch_out_of_range == 0 && max_blks < 0) {
+			toss4454_warn("data:max_blks < 0", blkid, nblks,
+			    orig_zs_blkid, orig_zs_pf_blkid, orig_zs_ipf_blkid,
+			    max_dist_blks);
+		}
+
+		pf_ahead_blks = MAX(0, pf_ahead_blks);
+		max_blks = MAX(0, max_blks);
+
 		pf_nblks = MIN(pf_ahead_blks, max_blks);
+
+		/*
+		 * (zs->zs_pf_blkid - zs->zs_blkid) <= max_dist_blks
+		 */
+		if (dmu_zfetch_out_of_range == 0 &&
+		    (pf_start + pf_nblks - end_of_access_blkid) > max_dist_blks) {
+			toss4454_warn("zs_pf_blkid >>> zs_blkid", blkid, nblks,
+			    orig_zs_blkid, orig_zs_pf_blkid, orig_zs_ipf_blkid,
+			    max_dist_blks);
+		}
 	} else {
 		pf_nblks = 0;
 	}
@@ -323,37 +359,39 @@ dmu_zfetch(zfetch_t *zf, uint64_t blkid, uint64_t nblks, boolean_t fetch_data)
 	 */
 	pf_ahead_blks = zs->zs_ipf_blkid - blkid + nblks + pf_nblks;
 	max_blks = max_dist_blks - (ipf_start - end_of_access_blkid);
+
+	if (dmu_zfetch_out_of_range == 0 && max_blks < 0) {
+		toss4454_warn("indirect:max_blks < 0", blkid, nblks,
+		    orig_zs_blkid, orig_zs_pf_blkid, orig_zs_ipf_blkid,
+		    max_dist_blks);
+	}
+
+	pf_ahead_blks = MAX(0, pf_ahead_blks);
+	max_blks = MAX(0, max_blks);
+
 	ipf_nblks = MIN(pf_ahead_blks, max_blks);
+
+	/*
+	 * (zs->zs_ipf_blkid - as->zs_blkid) <= max_dist_blks
+	 */
+	if (dmu_zfetch_out_of_range == 0 &&
+	    (ipf_start + ipf_nblks - end_of_access_blkid) > max_dist_blks) {
+		toss4454_warn("zs_ipf_blkid >>> zs_blkid", blkid, nblks,
+		    orig_zs_blkid, orig_zs_pf_blkid, orig_zs_ipf_blkid,
+		    max_dist_blks);
+	}
+
 	zs->zs_ipf_blkid = ipf_start + ipf_nblks;
 
 	epbs = zf->zf_dnode->dn_indblkshift - SPA_BLKPTRSHIFT;
 	ipf_istart = P2ROUNDUP(ipf_start, 1 << epbs) >> epbs;
 	ipf_iend = P2ROUNDUP(zs->zs_ipf_blkid, 1 << epbs) >> epbs;
+	ipf_iend = MAX(ipf_istart, ipf_iend);
 
 	zs->zs_atime = gethrtime();
 	zs->zs_blkid = end_of_access_blkid;
 	mutex_exit(&zs->zs_lock);
 	rw_exit(&zf->zf_rwlock);
-
-	if (dmu_zfetch_out_of_range == 0) {
-		if ((max_dist_blks < 0) || (ipf_start < 0) ||
-		    (max_blks < 0) || (pf_ahead_blks < 0) ||
-		    (ipf_nblks < 0) || (epbs < 0) ||
-		    (ipf_istart < 0) || (ipf_iend < 0)) {
-			cmn_err(CE_WARN,
-			    "toss-4454 out of range error: max_dist_blks %d "
-			    "ipf_start %lld max_blks %lld pf_ahead_blks %lld "
-			    "ipf_nblks %d epbs %d zs->zs_ipf_blkid %llu "
-			    "ipf_istart %lld ipf_iend %lld "
-			    "arg blkid %llu arg nblks %llu fetch_data %u"
-			    "dn_object %llu dn_nlevels %u",
-			    max_dist_blks, ipf_start, max_blks, pf_ahead_blks,
-			    ipf_nblks, epbs, zs->zs_ipf_blkid, ipf_istart,
-			    ipf_iend, blkid, nblks, fetch_data,
-			    zf->zf_dnode->dn_object, zf->zf_dnode->dn_nlevels);
-			dmu_zfetch_out_of_range = 1;
-		 }
-	}
 
 	/*
 	 * dbuf_prefetch() is asynchronous (even when it needs to read
