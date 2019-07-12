@@ -1546,7 +1546,7 @@ vdev_ops_t vdev_draid_spare_ops = {
 	.vdev_op_leaf = B_TRUE,
 };
 
-#if defined(_KERNEL) && defined(HAVE_SPL)
+#if defined(_KERNEL)
 module_param(draid_debug_lvl, int, 0644);
 MODULE_PARM_DESC(draid_debug_lvl, "dRAID debugging verbose level");
 #endif
