@@ -109,6 +109,9 @@ while [[ $j -lt ${#CHECKSUM_TYPES[*]} ]]; do
 	cksum=$(zpool status -P -v $TESTPOOL | grep "$firstvdev" | \
 	    awk '{print $5}')
 
+	#remove any text after the checksum count
+	cksum=`echo $cksum | cut -d ' ' -f 1`
+
 	log_assert "Checksum '$type' caught $cksum checksum errors"
 	log_must [ $cksum -ne 0 ]
 
