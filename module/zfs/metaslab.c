@@ -31,6 +31,7 @@
 #include <sys/space_map.h>
 #include <sys/metaslab_impl.h>
 #include <sys/vdev_impl.h>
+#include <sys/vdev_draid_impl.h>
 #include <sys/zio.h>
 #include <sys/spa_impl.h>
 #include <sys/zfeature.h>
@@ -1603,6 +1604,33 @@ metaslab_block_picker(range_tree_t *rt, uint64_t *cursor, uint64_t size,
 
 	*cursor = 0;
 	return (-1ULL);
+}
+#endif /* WITH_FF/DF/CF_BLOCK_ALLOCATOR */
+
+#if defined(WITH_FF_BLOCK_ALLOCATOR)
+/*
+ * ==========================================================================
+ * The first-fit block allocator
+ * ==========================================================================
+ */
+static uint64_t
+metaslab_ff_alloc(metaslab_t *msp, uint64_t size)
+{
+	/*
+	 * Find the largest power of 2 block size that evenly divides the
+	 * requested size. This is used to try to allocate blocks with similar
+	 * alignment from the same area of the metaslab (i.e. same cursor
+	 * bucket) but it does not guarantee that other allocations sizes
+	 * may exist in the same region.
+	 */
+	uint64_t align = size & -size;
+	uint64_t *cursor = &msp->ms_lbas[highbit64(align) - 1];
+	avl_tree_t *t = &msp->ms_allocatable->rt_root;
+
+	return (metaslab_block_picker(msp, t, cursor, size, align));
+=======
+	return (-1ULL);
+>>>>>>> 185021f76b5ef195cee213ef29d624a547fb0945
 }
 #endif /* WITH_DF/CF_BLOCK_ALLOCATOR */
 
@@ -4569,7 +4597,7 @@ metaslab_block_alloc(metaslab_t *msp, uint64_t size, uint64_t txg)
 		range_tree_clear(msp->ms_trim, start, size);
 
 		if (range_tree_is_empty(msp->ms_allocating[txg & TXG_MASK]))
-			vdev_dirty(mg->mg_vd, VDD_METASLAB, msp, txg);
+			vdev_dirty(vd, VDD_METASLAB, msp, txg);
 
 		range_tree_add(msp->ms_allocating[txg & TXG_MASK], start, size);
 		msp->ms_allocating_total += size;
@@ -4890,7 +4918,7 @@ metaslab_group_alloc_normal(metaslab_group_t *mg, zio_alloc_list_t *zal,
 		 * allocate from it since the allocated region might be
 		 * overwritten after allocation.
 		 */
-		if (msp->ms_condensing) {
+		if (msp->ms_condensing || msp->ms_rebuilding) {
 			metaslab_trace_add(zal, mg, msp, asize, d,
 			    TRACE_CONDENSING, allocator);
 			if (activated) {
@@ -4986,7 +5014,8 @@ next:
 		 * we may end up in an infinite loop retrying the same
 		 * metaslab.
 		 */
-		ASSERT(!metaslab_should_allocate(msp, asize, try_hard));
+		ASSERT(!metaslab_should_allocate(msp, asize, try_hard) ||
+		    mg->mg_vd->vdev_ops == &vdev_draid_ops);
 
 		mutex_exit(&msp->ms_lock);
 	}
@@ -5288,6 +5317,7 @@ metaslab_free_concrete(vdev_t *vd, uint64_t offset, uint64_t asize,
 	msp = vd->vdev_ms[offset >> vd->vdev_ms_shift];
 
 	VERIFY(!msp->ms_condensing);
+	VERIFY(!msp->ms_rebuilding);
 	VERIFY3U(offset, >=, msp->ms_start);
 	VERIFY3U(offset + asize, <=, msp->ms_start + msp->ms_size);
 	VERIFY0(P2PHASE(offset, 1ULL << vd->vdev_ashift));

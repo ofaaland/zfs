@@ -421,6 +421,7 @@ struct metaslab {
 	 */
 	boolean_t	ms_loaded;
 	boolean_t	ms_loading;
+	boolean_t	ms_rebuilding;
 	kcondvar_t	ms_flush_cv;
 	boolean_t	ms_flushing;
 

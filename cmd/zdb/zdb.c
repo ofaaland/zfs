@@ -1001,7 +1001,13 @@ dump_metaslab(metaslab_t *msp)
 		    SPACE_MAP_HISTOGRAM_SIZE, sm->sm_shift);
 	}
 
-	ASSERT(msp->ms_size == (1ULL << vd->vdev_ms_shift));
+	if (dump_opt['d'] > 5 || dump_opt['m'] > 3) {
+		if (vd->vdev_ops == &vdev_draid_ops)
+			ASSERT3U(msp->ms_size, <=, 1ULL << vd->vdev_ms_shift);
+		else
+			ASSERT3U(msp->ms_size, ==, 1ULL << vd->vdev_ms_shift);
+        }
+
 	dump_spacemap(spa->spa_meta_objset, msp->ms_sm);
 
 	if (spa_feature_is_active(spa, SPA_FEATURE_LOG_SPACEMAP)) {
