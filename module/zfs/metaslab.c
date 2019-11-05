@@ -1578,7 +1578,7 @@ metaslab_block_find(zfs_btree_t *t, range_tree_t *rt, uint64_t start,
  */
 static uint64_t
 metaslab_block_picker(range_tree_t *rt, uint64_t *cursor, uint64_t size,
-    uint64_t max_search)
+    uint64_t max_search, vdev_t *vd, uint64_t align)
 {
 	if (*cursor == 0)
 		*cursor = rt->rt_start;
@@ -1596,8 +1596,22 @@ metaslab_block_picker(range_tree_t *rt, uint64_t *cursor, uint64_t size,
 		uint64_t offset = rs_get_start(rs, rt);
 		if (offset + size <= rs_get_end(rs, rt)) {
 			*cursor = offset + size;
-			return (offset);
+
+			if (vd->vdev_ops != &vdev_draid_ops)
+				return (offset);
+
+			next_offset = vdev_draid_check_block(vd, offset, size);
+			if (next_offset == offset)
+				return (offset);
+
+			offset = P2ROUNDUP(next_offset, align);
+			if (offset + size <= rs_get_end(rs, rt)) {
+				ASSERT3U(offset, ==,
+				    vdev_draid_check_block(vd, offset, size));
+				*cursor = offset + size;
+				return (offset);
 		}
+
 		rs = zfs_btree_next(bt, &where, &where);
 		count_searched++;
 	}
@@ -1682,7 +1696,7 @@ metaslab_df_alloc(metaslab_t *msp, uint64_t size)
 		offset = -1;
 	} else {
 		offset = metaslab_block_picker(rt,
-		    cursor, size, metaslab_df_max_search);
+		    cursor, size, metaslab_df_max_search, msp->ms_group->mg_vd, align);
 	}
 
 	if (offset == -1) {
