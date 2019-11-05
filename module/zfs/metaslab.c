@@ -1594,6 +1594,7 @@ metaslab_block_picker(range_tree_t *rt, uint64_t *cursor, uint64_t size,
 	while (rs != NULL && (rs_get_start(rs, rt) - first_found <=
 	    max_search || count_searched < metaslab_min_search_count)) {
 		uint64_t offset = rs_get_start(rs, rt);
+		uint64_t next_offset;
 		if (offset + size <= rs_get_end(rs, rt)) {
 			*cursor = offset + size;
 
@@ -1610,6 +1611,7 @@ metaslab_block_picker(range_tree_t *rt, uint64_t *cursor, uint64_t size,
 				    vdev_draid_check_block(vd, offset, size));
 				*cursor = offset + size;
 				return (offset);
+			}
 		}
 
 		rs = zfs_btree_next(bt, &where, &where);
