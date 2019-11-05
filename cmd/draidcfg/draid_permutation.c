@@ -153,8 +153,10 @@ check_map(map_t *map)
 	memset(brokencounts, 0, sizeof (int) * map->ndevs);
 
 	for (i = 0; i < map->nbroken; i++) {
-		ASSERT(0 <= map->broken[i] && map->broken[i] < map->ndevs); /* valid drive */
-		ASSERT(brokencounts[i] == 0); /* not used already */
+		/* valid drive */
+		ASSERT(0 <= map->broken[i] && map->broken[i] < map->ndevs);
+		/* not used already */
+		ASSERT(brokencounts[i] == 0);
 		brokencounts[i] = 1;
 	}
 }

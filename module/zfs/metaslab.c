@@ -1578,7 +1578,7 @@ metaslab_block_find(zfs_btree_t *t, range_tree_t *rt, uint64_t start,
  */
 static uint64_t
 metaslab_block_picker(range_tree_t *rt, uint64_t *cursor, uint64_t size,
-    uint64_t max_search)
+    uint64_t max_search, vdev_t *vd, uint64_t align)
 {
 	if (*cursor == 0)
 		*cursor = rt->rt_start;
@@ -1594,43 +1594,32 @@ metaslab_block_picker(range_tree_t *rt, uint64_t *cursor, uint64_t size,
 	while (rs != NULL && (rs_get_start(rs, rt) - first_found <=
 	    max_search || count_searched < metaslab_min_search_count)) {
 		uint64_t offset = rs_get_start(rs, rt);
+		uint64_t next_offset;
 		if (offset + size <= rs_get_end(rs, rt)) {
 			*cursor = offset + size;
-			return (offset);
+
+			if (vd->vdev_ops != &vdev_draid_ops)
+				return (offset);
+
+			next_offset = vdev_draid_check_block(vd, offset, size);
+			if (next_offset == offset)
+				return (offset);
+
+			offset = P2ROUNDUP(next_offset, align);
+			if (offset + size <= rs_get_end(rs, rt)) {
+				ASSERT3U(offset, ==,
+				    vdev_draid_check_block(vd, offset, size));
+				*cursor = offset + size;
+				return (offset);
+			}
 		}
+
 		rs = zfs_btree_next(bt, &where, &where);
 		count_searched++;
 	}
 
 	*cursor = 0;
 	return (-1ULL);
-}
-#endif /* WITH_FF/DF/CF_BLOCK_ALLOCATOR */
-
-#if defined(WITH_FF_BLOCK_ALLOCATOR)
-/*
- * ==========================================================================
- * The first-fit block allocator
- * ==========================================================================
- */
-static uint64_t
-metaslab_ff_alloc(metaslab_t *msp, uint64_t size)
-{
-	/*
-	 * Find the largest power of 2 block size that evenly divides the
-	 * requested size. This is used to try to allocate blocks with similar
-	 * alignment from the same area of the metaslab (i.e. same cursor
-	 * bucket) but it does not guarantee that other allocations sizes
-	 * may exist in the same region.
-	 */
-	uint64_t align = size & -size;
-	uint64_t *cursor = &msp->ms_lbas[highbit64(align) - 1];
-	avl_tree_t *t = &msp->ms_allocatable->rt_root;
-
-	return (metaslab_block_picker(msp, t, cursor, size, align));
-=======
-	return (-1ULL);
->>>>>>> 185021f76b5ef195cee213ef29d624a547fb0945
 }
 #endif /* WITH_DF/CF_BLOCK_ALLOCATOR */
 
@@ -1682,7 +1671,8 @@ metaslab_df_alloc(metaslab_t *msp, uint64_t size)
 		offset = -1;
 	} else {
 		offset = metaslab_block_picker(rt,
-		    cursor, size, metaslab_df_max_search);
+		    cursor, size, metaslab_df_max_search, msp->ms_group->mg_vd,
+		    align);
 	}
 
 	if (offset == -1) {

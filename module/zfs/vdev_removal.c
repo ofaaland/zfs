@@ -1843,7 +1843,7 @@ vdev_remove_make_hole_and_free(vdev_t *vd)
 		vd = vdev_alloc_common(spa, id, 0, &vdev_hole_ops);
 		vdev_add_child(rvd, vd);
 	}
-        vdev_config_dirty(rvd);
+	vdev_config_dirty(rvd);
 
 	/*
 	 * Reassess the health of our root vdev.

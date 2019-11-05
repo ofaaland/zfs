@@ -290,7 +290,7 @@ spa_vdev_scan_thread(void *arg)
 	 */
 	txg_wait_synced(spa->spa_dsl_pool, svs->svs_dtl_max);
 
-	allocd_segs = range_tree_create(NULL, NULL);
+	allocd_segs = range_tree_create(NULL, RANGE_SEG64, NULL, 0, 0);
 
 	ms_done = kmem_alloc(sizeof (*ms_done) * vd->vdev_ms_count, KM_SLEEP);
 	for (msi = 0; msi < vd->vdev_ms_count; msi++) {
@@ -357,16 +357,18 @@ spa_vdev_scan_thread(void *arg)
 		mutex_exit(&msp->ms_sync_lock);
 
 		draid_dbg(1, "Scanning %lu segments for MS "U64FMT"\n",
-		    avl_numnodes(&allocd_segs->rt_root), msp->ms_id);
+		    zfs_btree_numnodes(&allocd_segs->rt_root), msp->ms_id);
 
 		while (!svs->svs_thread_exit &&
 		    range_tree_space(allocd_segs) != 0) {
 			uint64_t offset, length;
-			range_seg_t *rs = avl_first(&allocd_segs->rt_root);
+			range_seg_t *rs = zfs_btree_first(&allocd_segs->rt_root,
+			    NULL);
 
 			ASSERT(rs != NULL);
-			offset = rs->rs_start;
-			length = rs->rs_end - rs->rs_start;
+			offset = rs_get_start(rs, allocd_segs);
+			length = rs_get_end(rs, allocd_segs) -
+			    rs_get_start(rs, allocd_segs);
 
 			range_tree_remove(allocd_segs, offset, length);
 

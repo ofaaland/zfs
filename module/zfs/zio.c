@@ -3635,7 +3635,7 @@ zio_vdev_io_start(zio_t *zio)
 	if (vd->vdev_ops->vdev_op_leaf &&
 	    vd->vdev_ops != &vdev_draid_spare_ops &&
 	    (zio->io_type == ZIO_TYPE_READ || zio->io_type == ZIO_TYPE_WRITE ||
-	     zio->io_type == ZIO_TYPE_TRIM)) {
+	    zio->io_type == ZIO_TYPE_TRIM)) {
 
 		if (zio->io_type == ZIO_TYPE_READ && vdev_cache_read(zio))
 			return (zio);
