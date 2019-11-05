@@ -1619,33 +1619,6 @@ metaslab_block_picker(range_tree_t *rt, uint64_t *cursor, uint64_t size,
 	*cursor = 0;
 	return (-1ULL);
 }
-#endif /* WITH_FF/DF/CF_BLOCK_ALLOCATOR */
-
-#if defined(WITH_FF_BLOCK_ALLOCATOR)
-/*
- * ==========================================================================
- * The first-fit block allocator
- * ==========================================================================
- */
-static uint64_t
-metaslab_ff_alloc(metaslab_t *msp, uint64_t size)
-{
-	/*
-	 * Find the largest power of 2 block size that evenly divides the
-	 * requested size. This is used to try to allocate blocks with similar
-	 * alignment from the same area of the metaslab (i.e. same cursor
-	 * bucket) but it does not guarantee that other allocations sizes
-	 * may exist in the same region.
-	 */
-	uint64_t align = size & -size;
-	uint64_t *cursor = &msp->ms_lbas[highbit64(align) - 1];
-	avl_tree_t *t = &msp->ms_allocatable->rt_root;
-
-	return (metaslab_block_picker(msp, t, cursor, size, align));
-=======
-	return (-1ULL);
->>>>>>> 185021f76b5ef195cee213ef29d624a547fb0945
-}
 #endif /* WITH_DF/CF_BLOCK_ALLOCATOR */
 
 #if defined(WITH_DF_BLOCK_ALLOCATOR)
