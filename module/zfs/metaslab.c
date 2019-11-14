@@ -1576,7 +1576,7 @@ static uint64_t
 metaslab_find_offset(metaslab_t *msp, range_seg_t *rs, range_tree_t *rt,
     uint64_t size, uint64_t align)
 {
-	uint64_t offset = P2ROUNDUP(rs_get_start(rs, rt), align);
+	uint64_t offset = rs_get_start(rs, rt);
 
 	if (offset + size <= rs_get_end(rs, rt)) {
 		vdev_t *vd = msp->ms_group->mg_vd;
@@ -3127,7 +3127,7 @@ metaslab_segment_weight(metaslab_t *msp)
 	 * The metaslab is completely free.
 	 */
 	if (metaslab_allocated_space(msp) == 0) {
-		int idx = highbit64(metaslab_weight_size(msp)) - 1;
+		int idx = highbit64(msp->ms_size) - 1;
 		int max_idx = SPACE_MAP_HISTOGRAM_SIZE + shift - 1;
 
 		if (idx < max_idx) {
