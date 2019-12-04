@@ -6561,17 +6561,6 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 			draid++;
 	}
 
-	if (draid != 0) {
-		dmu_tx_t *tx;
-
-		tx = dmu_tx_create_assigned(spa->spa_dsl_pool, txg);
-
-		for (c = 0; c < draid; c++)
-			spa_feature_incr(spa, SPA_FEATURE_DRAID, tx);
-
-		dmu_tx_commit(tx);
-	}
-
 	if (nspares != 0) {
 		spa_set_aux_vdevs(&spa->spa_spares, spares, nspares,
 		    ZPOOL_CONFIG_SPARES);
@@ -6600,6 +6589,21 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 	 * steps will be completed the next time we load the pool.
 	 */
 	(void) spa_vdev_exit(spa, vd, txg, 0);
+
+	/*
+	 * We can't increment a feature while holding spa_vdev so we
+	 * have to do it here, this means we may land in a TXG after
+	 * the add TXG.
+	 */
+	if (draid != 0) {
+		dmu_tx_t *tx;
+
+		tx = dmu_tx_create(spa->spa_meta_objset);
+		for (c = 0; c < draid; c++)
+			spa_feature_incr(spa, SPA_FEATURE_DRAID, tx);
+
+		dmu_tx_commit(tx);
+	}
 
 	mutex_enter(&spa_namespace_lock);
 	spa_config_update(spa, SPA_CONFIG_UPDATE_POOL);
