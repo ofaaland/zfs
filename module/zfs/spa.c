@@ -6469,6 +6469,19 @@ spa_reset(char *pool)
  */
 
 /*
+ * This is called as a synctask to increment the draid feature flag
+ */
+static void
+spa_draid_feature_incr(void *arg, dmu_tx_t *tx)
+{
+	spa_t *spa = dmu_tx_pool(tx)->dp_spa;
+	int c, draid = (int)(uintptr_t)arg;
+
+	for (c = 0; c < draid; c++)
+		spa_feature_incr(spa, SPA_FEATURE_DRAID, tx);
+}
+
+/*
  * Add a device to a storage pool.
  */
 int
@@ -6576,6 +6589,19 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 	}
 
 	/*
+	 * We can't increment a feature while holding spa_vdev so we
+	 * have to do it in a synctask.
+	 */
+	if (draid != 0) {
+		dmu_tx_t *tx;
+
+		tx = dmu_tx_create_assigned(spa->spa_dsl_pool, txg);
+		dsl_sync_task_nowait(spa->spa_dsl_pool, spa_draid_feature_incr,
+		    (void *)(uintptr_t)draid, 0, ZFS_SPACE_CHECK_NONE, tx);
+		dmu_tx_commit(tx);
+	}
+
+	/*
 	 * We have to be careful when adding new vdevs to an existing pool.
 	 * If other threads start allocating from these vdevs before we
 	 * sync the config cache, and we lose power, then upon reboot we may
@@ -6589,21 +6615,6 @@ spa_vdev_add(spa_t *spa, nvlist_t *nvroot)
 	 * steps will be completed the next time we load the pool.
 	 */
 	(void) spa_vdev_exit(spa, vd, txg, 0);
-
-	/*
-	 * We can't increment a feature while holding spa_vdev so we
-	 * have to do it here, this means we may land in a TXG after
-	 * the add TXG.
-	 */
-	if (draid != 0) {
-		dmu_tx_t *tx;
-
-		tx = dmu_tx_create(spa->spa_meta_objset);
-		for (c = 0; c < draid; c++)
-			spa_feature_incr(spa, SPA_FEATURE_DRAID, tx);
-
-		dmu_tx_commit(tx);
-	}
 
 	mutex_enter(&spa_namespace_lock);
 	spa_config_update(spa, SPA_CONFIG_UPDATE_POOL);
