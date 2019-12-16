@@ -1574,29 +1574,23 @@ metaslab_block_find(zfs_btree_t *t, range_tree_t *rt, uint64_t start,
 
 static uint64_t
 metaslab_find_offset(metaslab_t *msp, range_seg_t *rs, range_tree_t *rt,
-    uint64_t size, uint64_t align)
+    uint64_t psize, uint64_t *sizep)
 {
+	vdev_t *vd = msp->ms_group->mg_vd;
 	uint64_t offset = rs_get_start(rs, rt);
+	uint64_t size = *sizep;
 
-	if (offset + size <= rs_get_end(rs, rt)) {
-		vdev_t *vd = msp->ms_group->mg_vd;
-		uint64_t next_offset;
-
-		if (vd->vdev_ops != &vdev_draid_ops)
-			return (offset);
-
-		next_offset = vdev_draid_check_block(vd, offset, size);
-		if (next_offset == offset)
-			return (offset);
-
-		offset = P2ROUNDUP(next_offset, align);
-		if (offset + size <= rs_get_end(rs, rt)) {
-			ASSERT3U(offset, ==,
-			    vdev_draid_check_block(vd, offset, size));
-			return (offset);
-		}
+	if (vd->vdev_ops == &vdev_draid_ops) {
+		*sizep = psize;
+		offset = vdev_draid_check_block(vd, offset, sizep);
 	}
+	ASSERT3U(size, >=, *sizep);
 
+	if (offset + *sizep <= rs_get_end(rs, rt))
+		return (offset);
+
+	/* leave size unaltered if we failed to find an offset */
+	*sizep = size;
 	return (-1ULL);
 }
 
@@ -1607,12 +1601,13 @@ metaslab_find_offset(metaslab_t *msp, range_seg_t *rs, range_tree_t *rt,
  */
 static uint64_t
 metaslab_block_picker(metaslab_t *msp, range_tree_t *rt, uint64_t *cursor,
-    uint64_t size, uint64_t max_search, uint64_t align)
+    uint64_t psize, uint64_t *sizep, uint64_t max_search)
 {
 	if (*cursor == 0)
 		*cursor = rt->rt_start;
 	zfs_btree_t *bt = &rt->rt_root;
 	zfs_btree_index_t where;
+	uint64_t size = *sizep;
 	range_seg_t *rs = metaslab_block_find(bt, rt, *cursor, size, &where);
 	uint64_t first_found = 0;
 	int count_searched = 0;
@@ -1624,9 +1619,10 @@ metaslab_block_picker(metaslab_t *msp, range_tree_t *rt, uint64_t *cursor,
 	    max_search || count_searched < metaslab_min_search_count)) {
 		uint64_t offset;
 
-		offset = metaslab_find_offset(msp, rs, rt, size, align);
+		offset = metaslab_find_offset(msp, rs, rt, psize, &size);
 		if (offset != -1ULL) {
 			*cursor = offset + size;
+			*sizep = size;
 			return (offset);
 		}
 
@@ -1661,7 +1657,7 @@ metaslab_block_picker(metaslab_t *msp, range_tree_t *rt, uint64_t *cursor,
  * ==========================================================================
  */
 static uint64_t
-metaslab_df_alloc(metaslab_t *msp, uint64_t size)
+metaslab_df_alloc(metaslab_t *msp, uint64_t psize, uint64_t *sizep)
 {
 	/*
 	 * Find the largest power of 2 block size that evenly divides the
@@ -1670,6 +1666,7 @@ metaslab_df_alloc(metaslab_t *msp, uint64_t size)
 	 * bucket) but it does not guarantee that other allocations sizes
 	 * may exist in the same region.
 	 */
+	uint64_t size = *sizep;
 	uint64_t align = size & -size;
 	uint64_t *cursor = &msp->ms_lbas[highbit64(align) - 1];
 	range_tree_t *rt = msp->ms_allocatable;
@@ -1687,7 +1684,7 @@ metaslab_df_alloc(metaslab_t *msp, uint64_t size)
 		offset = -1;
 	} else {
 		offset = metaslab_block_picker(msp, rt,
-		    cursor, size, metaslab_df_max_search, align);
+		    cursor, psize, &size, metaslab_df_max_search);
 	}
 
 	if (offset == -1) {
@@ -1711,12 +1708,14 @@ metaslab_df_alloc(metaslab_t *msp, uint64_t size)
 			    rt, msp->ms_start, size, &where);
 		}
 		if (rs != NULL) {
-			offset = metaslab_find_offset(msp, rs, rt, size, align);
+			offset = metaslab_find_offset(msp, rs, rt, psize,
+			    &size);
 			if (offset != -1)
 				*cursor = offset + size;
 		}
 	}
 
+	*sizep = size;
 	return (offset);
 }
 
@@ -4611,9 +4610,11 @@ metaslab_group_alloc_verify(spa_t *spa, const blkptr_t *bp, void *tag,
 }
 
 static uint64_t
-metaslab_block_alloc(metaslab_t *msp, uint64_t size, uint64_t txg)
+metaslab_block_alloc(metaslab_t *msp, uint64_t psize, uint64_t *sizep,
+    uint64_t txg)
 {
 	uint64_t start;
+	uint64_t size = *sizep;
 	range_tree_t *rt = msp->ms_allocatable;
 	metaslab_class_t *mc = msp->ms_group->mg_class;
 
@@ -4622,7 +4623,8 @@ metaslab_block_alloc(metaslab_t *msp, uint64_t size, uint64_t txg)
 	VERIFY0(msp->ms_disabled);
 	VERIFY(!msp->ms_rebuilding);
 
-	start = mc->mc_ops->msop_alloc(msp, size);
+	start = mc->mc_ops->msop_alloc(msp, psize, &size);
+	ASSERT3U(size, <=, *sizep);
 	if (start != -1ULL) {
 		metaslab_group_t *mg = msp->ms_group;
 		vdev_t *vd = mg->mg_vd;
@@ -4642,6 +4644,7 @@ metaslab_block_alloc(metaslab_t *msp, uint64_t size, uint64_t txg)
 		/* Track the last successful allocation */
 		msp->ms_alloc_txg = txg;
 		metaslab_verify_space(msp, txg);
+		*sizep = size;
 	}
 
 	/*
@@ -4759,11 +4762,12 @@ metaslab_active_mask_verify(metaslab_t *msp)
 /* ARGSUSED */
 static uint64_t
 metaslab_group_alloc_normal(metaslab_group_t *mg, zio_alloc_list_t *zal,
-    uint64_t asize, uint64_t txg, boolean_t want_unique, dva_t *dva, int d,
-    int allocator, boolean_t try_hard)
+    uint64_t psize, uint64_t *asizep, uint64_t txg, boolean_t want_unique,
+    dva_t *dva, int d, int allocator, boolean_t try_hard)
 {
 	metaslab_t *msp = NULL;
 	uint64_t offset = -1ULL;
+	uint64_t asize = *asizep;
 
 	uint64_t activation_weight = METASLAB_WEIGHT_PRIMARY;
 	for (int i = 0; i < d; i++) {
@@ -4977,13 +4981,16 @@ metaslab_group_alloc_normal(metaslab_group_t *mg, zio_alloc_list_t *zal,
 			continue;
 		}
 
-		offset = metaslab_block_alloc(msp, asize, txg);
+		ASSERT3U(psize, <=, asize);
+		offset = metaslab_block_alloc(msp, psize, &asize, txg);
+		ASSERT3U(asize, <=, *asizep);
 		metaslab_trace_add(zal, mg, msp, asize, d, offset, allocator);
 
 		if (offset != -1ULL) {
 			/* Proactively passivate the metaslab, if needed */
 			if (activated)
 				metaslab_segment_may_passivate(msp);
+			*asizep = asize;
 			break;
 		}
 next:
@@ -5065,17 +5072,19 @@ next:
 
 static uint64_t
 metaslab_group_alloc(metaslab_group_t *mg, zio_alloc_list_t *zal,
-    uint64_t asize, uint64_t txg, boolean_t want_unique, dva_t *dva, int d,
-    int allocator, boolean_t try_hard)
+    uint64_t psize, uint64_t *asizep, uint64_t txg, boolean_t want_unique,
+    dva_t *dva, int d, int allocator, boolean_t try_hard)
 {
 	uint64_t offset;
+	uint64_t asize = *asizep;
 	ASSERT(mg->mg_initialized);
 
-	offset = metaslab_group_alloc_normal(mg, zal, asize, txg, want_unique,
-	    dva, d, allocator, try_hard);
+	offset = metaslab_group_alloc_normal(mg, zal, psize, &asize, txg,
+	    want_unique, dva, d, allocator, try_hard);
 
 	mutex_enter(&mg->mg_lock);
 	if (offset == -1ULL) {
+		ASSERT3U(asize, ==, *asizep);
 		mg->mg_failed_allocations++;
 		metaslab_trace_add(zal, mg, NULL, asize, d,
 		    TRACE_GROUP_FAILURE, allocator);
@@ -5096,6 +5105,7 @@ metaslab_group_alloc(metaslab_group_t *mg, zio_alloc_list_t *zal,
 	}
 	mg->mg_allocations++;
 	mutex_exit(&mg->mg_lock);
+	*asizep = asize;
 	return (offset);
 }
 
@@ -5244,8 +5254,12 @@ top:
 
 		ASSERT(mg->mg_class == mc);
 
-		uint64_t asize = vdev_psize_to_asize(vd, psize);
-		ASSERT(P2PHASE(asize, 1ULL << vd->vdev_ashift) == 0);
+		/*
+		 * for some configs (e.g., draid) vdev_psize_to_asize() may
+		 * return an "estimate" for asize, which will be refined in
+		 * metaslab_group_alloc().
+		 */
+		uint64_t asize = vdev_psize_to_asize(vd, -1, psize);
 
 		/*
 		 * If we don't need to try hard, then require that the
@@ -5253,8 +5267,9 @@ top:
 		 * in this BP (unique=true).  If we are trying hard, then
 		 * allow any metaslab to be used (unique=false).
 		 */
-		uint64_t offset = metaslab_group_alloc(mg, zal, asize, txg,
-		    !try_hard, dva, d, allocator, try_hard);
+		uint64_t offset = metaslab_group_alloc(mg, zal, psize, &asize,
+		    txg, !try_hard, dva, d, allocator, try_hard);
+		ASSERT(P2PHASE(asize, 1ULL << vd->vdev_ashift) == 0);
 
 		if (offset != -1ULL) {
 			/*
@@ -5591,7 +5606,7 @@ metaslab_unalloc_dva(spa_t *spa, const dva_t *dva, uint64_t txg)
 	ASSERT3P(vd->vdev_indirect_mapping, ==, NULL);
 
 	if (DVA_GET_GANG(dva))
-		size = vdev_psize_to_asize(vd, SPA_GANGBLOCKSIZE);
+		size = vdev_psize_to_asize(vd, offset, SPA_GANGBLOCKSIZE);
 
 	msp = vd->vdev_ms[offset >> vd->vdev_ms_shift];
 
@@ -5626,7 +5641,7 @@ metaslab_free_dva(spa_t *spa, const dva_t *dva, boolean_t checkpoint)
 	ASSERT3U(spa_config_held(spa, SCL_ALL, RW_READER), !=, 0);
 
 	if (DVA_GET_GANG(dva)) {
-		size = vdev_psize_to_asize(vd, SPA_GANGBLOCKSIZE);
+		size = vdev_psize_to_asize(vd, offset, SPA_GANGBLOCKSIZE);
 	}
 
 	metaslab_free_impl(vd, offset, size, checkpoint);
@@ -5818,7 +5833,7 @@ metaslab_claim_dva(spa_t *spa, const dva_t *dva, uint64_t txg)
 	ASSERT(DVA_IS_VALID(dva));
 
 	if (DVA_GET_GANG(dva))
-		size = vdev_psize_to_asize(vd, SPA_GANGBLOCKSIZE);
+		size = vdev_psize_to_asize(vd, offset, SPA_GANGBLOCKSIZE);
 
 	return (metaslab_claim_impl(vd, offset, size, txg));
 }
@@ -6084,7 +6099,8 @@ metaslab_check_free(spa_t *spa, const blkptr_t *bp)
 		uint64_t size = DVA_GET_ASIZE(&bp->blk_dva[i]);
 
 		if (DVA_GET_GANG(&bp->blk_dva[i]))
-			size = vdev_psize_to_asize(vd, SPA_GANGBLOCKSIZE);
+			size = vdev_psize_to_asize(vd, offset,
+			    SPA_GANGBLOCKSIZE);
 
 		ASSERT3P(vd, !=, NULL);
 

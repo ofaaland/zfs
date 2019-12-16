@@ -171,7 +171,7 @@ typedef struct ztest_shared_opts {
 	int zo_raid_children;
 	int zo_raid_parity;
 	char zo_raid_type[8];
-	int zo_draid_data;
+	int zo_draid_disks;
 	int zo_draid_groups;
 	int zo_draid_spares;
 	int zo_datasets;
@@ -200,7 +200,7 @@ static const ztest_shared_opts_t ztest_opts_defaults = {
 	.zo_raid_parity = 1,
 	.zo_raid_type = VDEV_TYPE_RAIDZ,
 	.zo_vdev_size = SPA_MINDEVSIZE * 4,	/* 256m default size */
-	.zo_draid_data = 4,		/* data drives per redundancy group */
+	.zo_draid_disks = 16,		/* data drives */
 	.zo_draid_groups = 3,		/* redundancy group count */
 	.zo_draid_spares = 1,		/* distributed spares */
 	.zo_datasets = 7,
@@ -701,7 +701,7 @@ usage(boolean_t requested)
 	    "\t[-r raidz_disks (default: %d)]\n"
 	    "\t[-R raid_parity (default: %d)]\n"
 	    "\t[-K raid_kind (default: random)] raidz|draid|random\n"
-	    "\t[-D draid_data_drives (default: %d)] per redundancy group\n"
+	    "\t[-D draid_disks (default: %d)] in config\n"
 	    "\t[-G draid_groups (default: %d)] redundancy group count\n"
 	    "\t[-S draid_spares (default: %d)]\n"
 	    "\t[-d datasets (default: %d)]\n"
@@ -731,7 +731,7 @@ usage(boolean_t requested)
 	    zo->zo_mirrors,				/* -m */
 	    zo->zo_raid_children,			/* -r */
 	    zo->zo_raid_parity,				/* -R */
-	    zo->zo_draid_data,				/* -D */
+	    zo->zo_draid_disks,				/* -D */
 	    zo->zo_draid_groups,			/* -G */
 	    zo->zo_draid_spares,			/* -S */
 	    zo->zo_datasets,				/* -d */
@@ -861,7 +861,7 @@ process_options(int argc, char **argv)
 			(void) strlcpy(raid_kind, optarg, sizeof (raid_kind));
 			break;
 		case 'D':
-			zo->zo_draid_data = MAX(1, value);
+			zo->zo_draid_disks = MAX(1, value);
 			break;
 		case 'G':
 			zo->zo_draid_groups = MAX(1, value);
@@ -954,10 +954,13 @@ process_options(int argc, char **argv)
 	if (strcmp(raid_kind, "draid") == 0) {
 		uint64_t min_devsize;
 
-		/* Compute dRAID total disks from inputs */
-		ztest_opts.zo_raid_children = (zo->zo_draid_groups *
-		    (zo->zo_draid_data + zo->zo_raid_parity)) +
-		    zo->zo_draid_spares;
+		ztest_opts.zo_raid_children = zo->zo_draid_disks;
+		if (zo->zo_draid_disks < (zo->zo_draid_groups *
+		    (1 + zo->zo_raid_parity)) + zo->zo_draid_spares) {
+			(void) fprintf(stderr, "error: draid size (%d) too"
+			    "small\n", zo->zo_draid_disks);
+			usage(B_FALSE);
+		}
 
 		/* With fewer disk use 256M, otherwise 128M is OK */
 		min_devsize = (ztest_opts.zo_raid_children < 16) ?
@@ -1096,7 +1099,7 @@ ztest_get_draidcfg_bin(char *bin, int len)
  * dRAID configured via draidcfg command
  */
 static void
-ztest_run_draidcfg(uint_t total, uint_t group, uint_t parity, uint_t spares,
+ztest_run_draidcfg(uint_t total, uint_t groups, uint_t parity, uint_t spares,
     const char *path)
 {
 	int status;
@@ -1113,11 +1116,11 @@ ztest_run_draidcfg(uint_t total, uint_t group, uint_t parity, uint_t spares,
 	ztest_get_draidcfg_bin(bin, len);
 
 	/*
-	 * draidcfg -n total_drives -d drives_per_redundancy_group
+	 * draidcfg -n total_drives -g number_of_redundancy_groups
 	 * -p parity_per_group -s distributed_spare cfg_file_name
 	 */
-	(void) sprintf(draidcfg, "%s -n %d -d %d -p %d -s %d %s",
-	    bin, total, group, parity, spares, path);
+	(void) sprintf(draidcfg, "%s -n %d -g %d -p %d -s %d %s",
+	    bin, total, groups, parity, spares, path);
 
 	if (ztest_opts.zo_verbose >= 3)
 		(void) printf("Executing %s\n", strstr(draidcfg, "draidcfg "));
@@ -1155,7 +1158,7 @@ make_draid_config(ztest_shared_opts_t *zo)
 
 	/* build a dRAID config */
 	ztest_run_draidcfg(ztest_opts.zo_raid_children,
-	    ztest_opts.zo_draid_data, ztest_opts.zo_raid_parity,
+	    ztest_opts.zo_draid_groups, ztest_opts.zo_raid_parity,
 	    ztest_opts.zo_draid_spares, path);
 
 	umem_free(path, MAXPATHLEN);
@@ -5083,13 +5086,13 @@ ztest_dmu_read_write_zcopy(ztest_ds_t *zd, uint64_t id)
 			void *packcheck = umem_alloc(packsize, UMEM_NOFAIL);
 			void *bigcheck = umem_alloc(bigsize, UMEM_NOFAIL);
 
-			VERIFY(0 == dmu_read(os, packobj, packoff,
+			VERIFY3U(0, ==, dmu_read(os, packobj, packoff,
 			    packsize, packcheck, DMU_READ_PREFETCH));
-			VERIFY(0 == dmu_read(os, bigobj, bigoff,
+			VERIFY3U(0, ==, dmu_read(os, bigobj, bigoff,
 			    bigsize, bigcheck, DMU_READ_PREFETCH));
 
-			ASSERT(bcmp(packbuf, packcheck, packsize) == 0);
-			ASSERT(bcmp(bigbuf, bigcheck, bigsize) == 0);
+			ASSERT3U(bcmp(packbuf, packcheck, packsize), ==, 0);
+			ASSERT3U(bcmp(bigbuf, bigcheck, bigsize), ==, 0);
 
 			umem_free(packcheck, packsize);
 			umem_free(bigcheck, bigsize);
