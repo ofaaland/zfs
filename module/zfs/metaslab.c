@@ -1571,6 +1571,35 @@ metaslab_block_find(zfs_btree_t *t, range_tree_t *rt, uint64_t start,
 
 #if defined(WITH_DF_BLOCK_ALLOCATOR) || \
     defined(WITH_CF_BLOCK_ALLOCATOR)
+
+static uint64_t
+metaslab_find_offset(metaslab_t *msp, range_seg_t *rs, range_tree_t *rt,
+    uint64_t size, uint64_t align)
+{
+	uint64_t offset = P2ROUNDUP(rs_get_start(rs, rt), align);
+
+	if (offset + size <= rs_get_end(rs, rt)) {
+		vdev_t *vd = msp->ms_group->mg_vd;
+		uint64_t next_offset;
+
+		if (vd->vdev_ops != &vdev_draid_ops)
+			return (offset);
+
+		next_offset = vdev_draid_check_block(vd, offset, size);
+		if (next_offset == offset)
+			return (offset);
+
+		offset = P2ROUNDUP(next_offset, align);
+		if (offset + size <= rs_get_end(rs, rt)) {
+			ASSERT3U(offset, ==,
+			    vdev_draid_check_block(vd, offset, size));
+			return (offset);
+		}
+	}
+
+	return (-1ULL);
+}
+
 /*
  * This is a helper function that can be used by the allocator to find a
  * suitable block to allocate. This will search the specified B-tree looking
@@ -1585,7 +1614,7 @@ metaslab_block_picker(metaslab_t *msp, range_tree_t *rt, uint64_t *cursor,
 	zfs_btree_t *bt = &rt->rt_root;
 	zfs_btree_index_t where;
 	range_seg_t *rs = metaslab_block_find(bt, rt, *cursor, size, &where);
-	uint64_t first_found;
+	uint64_t first_found = 0;
 	int count_searched = 0;
 
 	if (rs != NULL)
@@ -1593,29 +1622,12 @@ metaslab_block_picker(metaslab_t *msp, range_tree_t *rt, uint64_t *cursor,
 
 	while (rs != NULL && (rs_get_start(rs, rt) - first_found <=
 	    max_search || count_searched < metaslab_min_search_count)) {
-		vdev_t *vd = msp->ms_group->mg_vd;
-		uint64_t offset = rs_get_start(rs, rt);
-		uint64_t next_offset;
+		uint64_t offset;
 
-		if (vd->vdev_ops != &vdev_draid_ops) {
-			if (offset + size <= rs_get_end(rs, rt)) {
-				*cursor = offset + size;
-				return (offset);
-			}
-		} else {
-			next_offset = vdev_draid_check_block(vd, offset, size);
-			if (next_offset == offset) {
-				*cursor = offset + size;
-				return (offset);
-			}
-
-			offset = P2ROUNDUP(next_offset, align);
-			if (offset + size <= rs_get_end(rs, rt)) {
-				ASSERT3U(offset, ==,
-				    vdev_draid_check_block(vd, offset, size));
-				*cursor = offset + size;
-				return (offset);
-			}
+		offset = metaslab_find_offset(msp, rs, rt, size, align);
+		if (offset != -1ULL) {
+			*cursor = offset + size;
+			return (offset);
 		}
 
 		rs = zfs_btree_next(bt, &where, &where);
@@ -1698,10 +1710,10 @@ metaslab_df_alloc(metaslab_t *msp, uint64_t size)
 			rs = metaslab_block_find(&msp->ms_allocatable_by_size,
 			    rt, msp->ms_start, size, &where);
 		}
-		if (rs != NULL && rs_get_start(rs, rt) + size <= rs_get_end(rs,
-		    rt)) {
-			offset = rs_get_start(rs, rt);
-			*cursor = offset + size;
+		if (rs != NULL) {
+			offset = metaslab_find_offset(msp, rs, rt, size, align);
+			if (offset != -1)
+				*cursor = offset + size;
 		}
 	}
 
