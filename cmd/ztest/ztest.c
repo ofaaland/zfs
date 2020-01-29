@@ -1471,6 +1471,8 @@ ztest_dsl_prop_set_uint64(char *osname, zfs_prop_t prop, uint64_t value,
 	return (error);
 }
 
+#if 0
+/* not till we have xlate for draid */
 static int
 ztest_spa_prop_set_uint64(zpool_prop_t prop, uint64_t value)
 {
@@ -1493,6 +1495,7 @@ ztest_spa_prop_set_uint64(zpool_prop_t prop, uint64_t value)
 
 	return (error);
 }
+#endif
 
 static int
 ztest_dmu_objset_own(const char *name, dmu_objset_type_t type,
@@ -5772,7 +5775,10 @@ ztest_spa_prop_get_set(ztest_ds_t *zd, uint64_t id)
 
 	(void) pthread_rwlock_rdlock(&ztest_name_lock);
 
+#if 0
+	/* not till we have xlate for draid */
 	(void) ztest_spa_prop_set_uint64(ZPOOL_PROP_AUTOTRIM, ztest_random(2));
+#endif
 
 	VERIFY0(spa_prop_get(ztest_spa, &props));
 
