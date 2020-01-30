@@ -228,7 +228,7 @@ draidcfg_create_file(const uint64_t groups, const uint64_t parity,
 	    val, children * cfg->dcf_bases);
 	free(val);
 
-	assert(vdev_draid_config_validate(NULL, nvl));
+	assert(vdev_draid_config_validate(NULL, nvl) == DRAIDCFG_OK);
 
 	packed = fnvlist_pack_xdr(nvl, &len);
 	if (fwrite(packed, 1, len, fp) != len) {

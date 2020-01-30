@@ -212,9 +212,11 @@ spa_vdev_scan_draid_rebuild(spa_vdev_scan_t *svs, zio_t *pio,
 			spa->spa_scan_pass_exam += chunksz;
 		}
 
-		draid_dbg(3, "\t%s: "U64FMT"K + "U64FMT"K (%s)\n",
-		    action, offset >> 10, chunksz >> 10,
-		    mirror ? "mirrored" : "dRAID");
+		if (zfs_flags & ZFS_DEBUG_DRAID) {
+			zfs_dbgmsg("%s: %llu + %llu (%s)",
+			    action, offset, chunksz,
+			    mirror ? "mirrored" : "dRAID");
+		}
 
 		length -= chunksz;
 		offset += chunksz;
@@ -248,8 +250,7 @@ spa_vdev_scan_ms_done(zio_t *zio)
 		 * this MS.
 		 */
 		mutex_exit(&svs->svs_lock);
-		draid_dbg(1, "Aborted rebuilding metaslab "U64FMT"\n",
-		    msp->ms_id);
+		zfs_dbgmsg("aborted rebuilding metaslab %llu", msp->ms_id);
 		return;
 	}
 
@@ -264,8 +265,8 @@ spa_vdev_scan_ms_done(zio_t *zio)
 
 	mutex_exit(&svs->svs_lock);
 
-	draid_dbg(1, "Completed rebuilding metaslab "U64FMT"\n", msp->ms_id);
-	draid_dbg(1, "All metaslabs [0, %d) fully rebuilt.\n", msi)
+	zfs_dbgmsg("completed rebuilding metaslab %llu", msp->ms_id);
+	zfs_dbgmsg("all metaslabs [0, %d) fully rebuilt", msi);
 }
 
 static void
@@ -359,7 +360,7 @@ spa_vdev_scan_thread(void *arg)
 		mutex_exit(&msp->ms_lock);
 		mutex_exit(&msp->ms_sync_lock);
 
-		draid_dbg(1, "Scanning "U64FMT" segments for MS "U64FMT"\n",
+		zfs_dbgmsg("scanning %llu segments for MS %llu",
 		    range_tree_numsegs(allocd_segs), msp->ms_id);
 
 		while (!svs->svs_thread_exit &&
@@ -372,10 +373,9 @@ spa_vdev_scan_thread(void *arg)
 
 			range_tree_remove(allocd_segs, offset, length);
 
-			draid_dbg(2, "MS ("U64FMT" at "U64FMT"K) segment: "
-			    U64FMT"K + "U64FMT"K\n",
-			    msp->ms_id, msp->ms_start >> 10,
-			    (offset - msp->ms_start) >> 10, length >> 10);
+			zfs_dbgmsg("MS (%llu at %llu) segment: %llu + %llu",
+			    msp->ms_id, msp->ms_start,
+			    offset - msp->ms_start, length);
 
 			if (vd->vdev_ops == &vdev_mirror_ops)
 				spa_vdev_scan_rebuild(svs, pio,
@@ -477,8 +477,7 @@ spa_vdev_scan_restart(vdev_t *rvd)
 	    !vdev_resilver_needed(dspare, NULL, NULL))
 		return (SET_ERROR(ENOENT));
 
-	draid_dbg(1, "Restarting rebuild at metaslab "U64FMT"\n",
-	    svs_phys.sr_ms + 1);
+	zfs_dbgmsg("restarting rebuild at metaslab %llu", svs_phys.sr_ms + 1);
 	spa_vdev_scan_start(spa, oldvd, svs_phys.sr_ms + 1,
 	    spa_last_synced_txg(spa) + 1 + TXG_CONCURRENT_STATES);
 	return (0);

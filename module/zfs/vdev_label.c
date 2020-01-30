@@ -463,7 +463,8 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 
 	if (vd->vdev_cfg != NULL) {
 		ASSERT(vd->vdev_ops == &vdev_draid_ops);
-		ASSERT(vdev_draid_config_validate(vd, vd->vdev_cfg));
+		ASSERT3U(vdev_draid_config_validate(vd, vd->vdev_cfg), ==,
+		    DRAIDCFG_OK);
 
 		fnvlist_add_nvlist(nv, ZPOOL_CONFIG_DRAIDCFG, vd->vdev_cfg);
 	}

@@ -27,151 +27,122 @@
 #include <sys/vdev_draid_impl.h>
 #include <sys/nvpair.h>
 
-#ifdef _KERNEL
-#include <linux/kernel.h>
-#else
-#include <sys/stat.h>
-#include <libintl.h>
-#endif
-
-boolean_t
+draidcfg_err_t
 vdev_draid_config_validate(const vdev_t *vd, nvlist_t *config)
 {
-	int i;
 	uint_t c;
 	uint8_t *data = NULL;
 	uint8_t *perm = NULL;
-	uint64_t n, g, p, s, b, tot;
+	uint64_t n, g, p, s, b;
 
-	if (nvlist_lookup_uint64(config,
-	    ZPOOL_CONFIG_DRAIDCFG_CHILDREN, &n) != 0) {
-		draid_dbg(0, "Missing %s in configuration\n",
-		    ZPOOL_CONFIG_DRAIDCFG_CHILDREN);
-		return (B_FALSE);
-	}
+	/* Validate configuration children exists and is within range. */
+	if (nvlist_lookup_uint64(config, ZPOOL_CONFIG_DRAIDCFG_CHILDREN, &n))
+		return (DRAIDCFG_ERR_CHILDREN_MISSING);
 
-	if (n - 1 > VDEV_DRAID_U8_MAX) {
-		draid_dbg(0, "%s configuration too large: "U64FMT"\n",
-		    ZPOOL_CONFIG_DRAIDCFG_CHILDREN, n);
-		return (B_FALSE);
-	}
+	if (n == 0 || (n - 1) > VDEV_DRAID_U8_MAX)
+		return (DRAIDCFG_ERR_CHILDREN_INVALID);
+
 	if (vd != NULL && n != vd->vdev_children)
-		return (B_FALSE);
+		return (DRAIDCFG_ERR_CHILDREN_MISMATCH);
 
-	if (nvlist_lookup_uint64(config,
-	    ZPOOL_CONFIG_DRAIDCFG_PARITY, &p) != 0) {
-		draid_dbg(0, "Missing %s in configuration\n",
-		    ZPOOL_CONFIG_DRAIDCFG_PARITY);
-		return (B_FALSE);
-	}
+	/* Validate configuration parity exists and is within range. */
+	if (nvlist_lookup_uint64(config, ZPOOL_CONFIG_DRAIDCFG_PARITY, &p))
+		return (DRAIDCFG_ERR_PARITY_MISSING);
+
+	if (p == 0 || p > VDEV_RAIDZ_MAXPARITY)
+		return (DRAIDCFG_ERR_PARITY_INVALID);
 
 	if (vd != NULL && p != vd->vdev_nparity)
-		return (B_FALSE);
+		return (DRAIDCFG_ERR_PARITY_MISMATCH);
 
-	if (nvlist_lookup_uint64(config,
-	    ZPOOL_CONFIG_DRAIDCFG_GROUPS, &g) != 0) {
-		draid_dbg(0, "Missing %s in configuration\n",
-		    ZPOOL_CONFIG_DRAIDCFG_GROUPS);
-		return (B_FALSE);
-	}
+	/* Validate configuration groups exists and is within range. */
+	if (nvlist_lookup_uint64(config, ZPOOL_CONFIG_DRAIDCFG_GROUPS, &g))
+		return (DRAIDCFG_ERR_GROUPS_MISSING);
 
-	if (nvlist_lookup_uint64(config,
-	    ZPOOL_CONFIG_DRAIDCFG_SPARE, &s) != 0) {
-		draid_dbg(0, "Missing %s in configuration\n",
-		    ZPOOL_CONFIG_DRAIDCFG_SPARE);
-		return (B_FALSE);
-	}
+	if (g == 0)
+		return (DRAIDCFG_ERR_GROUPS_INVALID);
 
+	/* Validate configuration spares exists and is within range. */
+	if (nvlist_lookup_uint64(config, ZPOOL_CONFIG_DRAIDCFG_SPARE, &s))
+		return (DRAIDCFG_ERR_SPARES_MISSING);
+
+	if (s == 0)
+		return (DRAIDCFG_ERR_SPARES_INVALID);
+
+	/*
+	 * Validate configuration data array exists and that the array size
+	 * matches the expected number of groups.  Furthermore, verify the
+	 * number of devices in each group is below average (plus one) to
+	 * confirm the group sizes are approximately equal in size.
+	 */
 	if (nvlist_lookup_uint8_array(config,
-	    ZPOOL_CONFIG_DRAIDCFG_DATA, &data, &c) != 0) {
-		draid_dbg(0, "Missing %s in configuration\n",
-		    ZPOOL_CONFIG_DRAIDCFG_DATA);
-		return (B_FALSE);
+	    ZPOOL_CONFIG_DRAIDCFG_DATA, &data, &c)) {
+		return (DRAIDCFG_ERR_DATA_MISSING);
 	}
 
-	if (c != g) {
-		draid_dbg(0,
-		    "Data array has %u items, but "U64FMT" expected\n", c, g);
-		return (B_FALSE);
-	}
+	if (c != g)
+		return (DRAIDCFG_ERR_DATA_MISMATCH);
 
-	tot = 0;
-	for (i = 0; i < g; i++) {
+	uint64_t total_d_p = 0;
+	uint64_t max = (n - s) / g + 1;
+
+	for (uint64_t i = 0; i < g; i++) {
 		uint64_t val = data[i] + p;
-		uint64_t max = (n - s) / g + 1;
 
-		if (val > max) {
-			draid_dbg(0,
-			    "Invalid value "U64FMT" at "
-			    "group array %d\n", val, i);
-			return (B_FALSE);
-		}
-		tot += val;
+		if (val > max)
+			return (DRAIDCFG_ERR_DATA_INVALID);
+
+		total_d_p += val;
 	}
 
-	if (nvlist_lookup_uint64(config, ZPOOL_CONFIG_DRAIDCFG_BASE, &b) != 0) {
-		draid_dbg(0, "Missing %s in configuration\n",
-		    ZPOOL_CONFIG_DRAIDCFG_BASE);
-		return (B_FALSE);
-	}
+	/* Validate configuration base exists and is within range. */
+	if (nvlist_lookup_uint64(config, ZPOOL_CONFIG_DRAIDCFG_BASE, &b))
+		return (DRAIDCFG_ERR_BASE_MISSING);
 
-	if (n == 0 || g == 0 || p == 0 || s == 0 || b == 0) {
-		draid_dbg(0, "Zero n/g/p/s/b\n");
-		return (B_FALSE);
-	}
+	if (b == 0)
+		return (DRAIDCFG_ERR_BASE_INVALID);
 
-	if (p > VDEV_RAIDZ_MAXPARITY) {
-		draid_dbg(0, "Invalid parity "U64FMT"\n", p);
-		return (B_FALSE);
-	}
-
-	if ((n - s) != tot) {
-		draid_dbg(0, U64FMT" - "U64FMT" is not 0\n", n - s, tot);
-		return (B_FALSE);
-	}
+	/*
+	 * Validate that the total number of dRAID children minus the number
+	 * of distributed spares equals the number of data and parity devices.
+	 * This is a hard constraint of the distribution parity implementation.
+	 */
+	if ((n - s) != total_d_p)
+		return (DRAIDCFG_ERR_LAYOUT);
 
 	if (nvlist_lookup_uint8_array(config,
-	    ZPOOL_CONFIG_DRAIDCFG_PERM, &perm, &c) != 0) {
-		draid_dbg(0, "Missing %s in configuration\n",
-		    ZPOOL_CONFIG_DRAIDCFG_PERM);
-		return (B_FALSE);
+	    ZPOOL_CONFIG_DRAIDCFG_PERM, &perm, &c)) {
+		return (DRAIDCFG_ERR_PERM_MISSING);
 	}
 
-	if (c != b * n) {
-		draid_dbg(0,
-		    "Permutation array has %u items, but "U64FMT" expected\n",
-		    c, b * n);
-		return (B_FALSE);
-	}
+	/*
+	 * Validate the permutation array size matches the expected size,
+	 * that its elements are within the allowed range, and that there
+	 * are no duplicates.
+	 */
+	if (c != b * n)
+		return (DRAIDCFG_ERR_PERM_MISMATCH);
 
-	for (i = 0; i < b; i++) {
-		int j, k;
-		for (j = 0; j < n; j++) {
+	for (uint64_t i = 0; i < b; i++) {
+		for (uint64_t j = 0; j < n; j++) {
 			uint64_t val = perm[i * n + j];
 
-			if (val >= n) {
-				draid_dbg(0,
-				    "Invalid value "U64FMT" in "
-				    "permutation %d\n", val, i);
-				return (B_FALSE);
-			}
+			if (val >= n)
+				return (DRAIDCFG_ERR_PERM_INVALID);
 
-			for (k = 0; k < j; k++) {
-				if (val == perm[i * n + k]) {
-					draid_dbg(0,
-					    "Duplicated value "U64FMT" in "
-					    "permutation %d\n",
-					    val, i);
-					return (B_FALSE);
-				}
+			for (uint64_t k = 0; k < j; k++) {
+				if (val == perm[i * n + k])
+					return (DRAIDCFG_ERR_PERM_DUPLICATE);
 			}
 		}
 	}
 
-	return (B_TRUE);
+	return (DRAIDCFG_OK);
 }
 
 #if !defined(_KERNEL)
+#include <sys/stat.h>
+
 boolean_t
 vdev_draid_config_add(nvlist_t *top, nvlist_t *draidcfg)
 {
@@ -253,12 +224,93 @@ draidcfg_read_file(const char *path)
 
 	free(buf);
 
-	if (!vdev_draid_config_validate(NULL, config)) {
-		nvlist_free(config);
-		return (NULL);
+	switch (vdev_draid_config_validate(NULL, config)) {
+	case DRAIDCFG_OK:
+		return (config);
+	case DRAIDCFG_ERR_CHILDREN_MISSING:
+		(void) fprintf(stderr, "Missing %s key in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_CHILDREN);
+		break;
+	case DRAIDCFG_ERR_CHILDREN_INVALID:
+		(void) fprintf(stderr, "Invalid %s value in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_CHILDREN);
+		break;
+	case DRAIDCFG_ERR_CHILDREN_MISMATCH:
+		(void) fprintf(stderr, "Inconsistent %s value in "
+		    "configuration\n", ZPOOL_CONFIG_DRAIDCFG_CHILDREN);
+		break;
+	case DRAIDCFG_ERR_PARITY_MISSING:
+		(void) fprintf(stderr, "Missing %s key in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_PARITY);
+		break;
+	case DRAIDCFG_ERR_PARITY_INVALID:
+		(void) fprintf(stderr, "Invalid %s value in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_PARITY);
+		break;
+	case DRAIDCFG_ERR_PARITY_MISMATCH:
+		(void) fprintf(stderr, "Inconsistent %s value in "
+		    "configuration\n", ZPOOL_CONFIG_DRAIDCFG_PARITY);
+		break;
+	case DRAIDCFG_ERR_GROUPS_MISSING:
+		(void) fprintf(stderr, "Missing %s key in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_GROUPS);
+		break;
+	case DRAIDCFG_ERR_GROUPS_INVALID:
+		(void) fprintf(stderr, "Invalid %s value in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_GROUPS);
+		break;
+	case DRAIDCFG_ERR_SPARES_MISSING:
+		(void) fprintf(stderr, "Missing %s key in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_SPARE);
+		break;
+	case DRAIDCFG_ERR_SPARES_INVALID:
+		(void) fprintf(stderr, "Invalid %s value in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_SPARE);
+		break;
+	case DRAIDCFG_ERR_DATA_MISSING:
+		(void) fprintf(stderr, "Missing %s key in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_DATA);
+		break;
+	case DRAIDCFG_ERR_DATA_INVALID:
+		(void) fprintf(stderr, "Invalid %s value in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_DATA);
+		break;
+	case DRAIDCFG_ERR_DATA_MISMATCH:
+		(void) fprintf(stderr, "Inconsistent %s value in "
+		    "configuration\n", ZPOOL_CONFIG_DRAIDCFG_DATA);
+		break;
+	case DRAIDCFG_ERR_BASE_MISSING:
+		(void) fprintf(stderr, "Missing %s key in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_BASE);
+		break;
+	case DRAIDCFG_ERR_BASE_INVALID:
+		(void) fprintf(stderr, "Invalid %s value in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_BASE);
+		break;
+	case DRAIDCFG_ERR_PERM_MISSING:
+		(void) fprintf(stderr, "Missing %s key in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_PERM);
+		break;
+	case DRAIDCFG_ERR_PERM_INVALID:
+		(void) fprintf(stderr, "Invalid %s value in configuration\n",
+		    ZPOOL_CONFIG_DRAIDCFG_PERM);
+		break;
+	case DRAIDCFG_ERR_PERM_MISMATCH:
+		(void) fprintf(stderr, "Inconsistent %s value in "
+		    "configuration\n", ZPOOL_CONFIG_DRAIDCFG_PERM);
+		break;
+	case DRAIDCFG_ERR_PERM_DUPLICATE:
+		(void) fprintf(stderr, "Duplicate %s value in "
+		    "configuration\n", ZPOOL_CONFIG_DRAIDCFG_PERM);
+		break;
+	case DRAIDCFG_ERR_LAYOUT:
+		(void) fprintf(stderr, "Invalid dRAID layout "
+		    "(n -s) != (d + p)\n");
+		break;
 	}
 
-	return (config);
+	nvlist_free(config);
+	return (NULL);
 }
 #endif /* _KERNEL */
 

@@ -35,22 +35,13 @@
 #include <sys/zio_checksum.h>
 #include <sys/fs/zfs.h>
 #include <sys/fm/fs/zfs.h>
-
-#ifdef _KERNEL
-#include <linux/kernel.h>
-#else
-#include <libintl.h>
-#endif
-
 #include "vdev_raidz.h"
 
 uint64_t
 vdev_draid_asize_by_type(const vdev_t *, uint64_t, uint64_t, boolean_t);
 
-int draid_debug_lvl = 3;
-
 static void
-vdev_draid_debug_map(int lvl, raidz_map_t *rm)
+vdev_draid_debug_map(raidz_map_t *rm)
 {
 	int c;
 
@@ -77,11 +68,10 @@ vdev_draid_debug_map(int lvl, raidz_map_t *rm)
 			}
 		}
 
-		draid_dbg(lvl,
-		    "%c: dev "U64FMT" (%s) off "U64FMT"K, sz "U64FMT"K, "
-		    "err %d, skipped %d, tried %d\n", t, rc->rc_devidx,
+		zfs_dbgmsg("%c: dev %llu (%s) off %llu, sz %llu, "
+		    "err %d, skipped %d, tried %d", t, rc->rc_devidx,
 		    cvd->vdev_path != NULL ? cvd->vdev_path : "NA",
-		    rc->rc_offset >> 10, rc->rc_size >> 10,
+		    rc->rc_offset, rc->rc_size,
 		    rc->rc_error, rc->rc_skipped, rc->rc_tried);
 	}
 }
@@ -89,14 +79,14 @@ vdev_draid_debug_map(int lvl, raidz_map_t *rm)
 void
 vdev_draid_debug_zio(zio_t *zio, boolean_t mirror)
 {
-	ASSERT0(mirror);
+	if (zfs_flags & ZFS_DEBUG_DRAID) {
+		zfs_dbgmsg("%s zio: off %llu sz %llu data %px",
+		    mirror ? "Mirror" : "dRAID", zio->io_offset,
+		    zio->io_size, zio->io_abd);
 
-	draid_dbg(3, "%s zio: off "U64FMT"K sz "U64FMT"K data %p\n",
-	    mirror ? "Mirror" : "dRAID", zio->io_offset >> 10,
-	    zio->io_size >> 10, zio->io_abd);
-
-	if (!mirror)
-		vdev_draid_debug_map(3, zio->io_vsd);
+		if (!mirror)
+			vdev_draid_debug_map(zio->io_vsd);
+	}
 }
 
 /* A child vdev is divided into slices */
@@ -688,7 +678,7 @@ vdev_draid_group_degraded(vdev_t *vd, vdev_t *oldvd,
 	struct vdev_draid_configuration *cfg = vd->vdev_tsd;
 	boolean_t degraded = B_FALSE;
 	zio_t *zio;
-	int c, dummy_data;
+	int dummy_data;
 	uint64_t *perm;
 	char buf[128];
 
@@ -710,7 +700,7 @@ vdev_draid_group_degraded(vdev_t *vd, vdev_t *oldvd,
 
 		ASSERT3U(mm->mm_children, ==, cfg->dcf_parity + 1);
 
-		for (c = 0; c < mm->mm_children; c++) {
+		for (int c = 0; c < mm->mm_children; c++) {
 			mirror_child_t *mc = &mm->mm_child[c];
 			char *status = "";
 
@@ -719,8 +709,11 @@ vdev_draid_group_degraded(vdev_t *vd, vdev_t *oldvd,
 				degraded = B_TRUE;
 				status = "*";
 			}
-			snprintf(buf + strlen(buf), sizeof (buf) - strlen(buf),
-			    U64FMT"%s ", mc->mc_vd->vdev_id, status);
+			if (zfs_flags & ZFS_DEBUG_DRAID) {
+				snprintf(buf + strlen(buf),
+				    sizeof (buf) - strlen(buf), "%llu%s ",
+				    (u_longlong_t)mc->mc_vd->vdev_id, status);
+			}
 		}
 #endif
 	} else {
@@ -729,7 +722,7 @@ vdev_draid_group_degraded(vdev_t *vd, vdev_t *oldvd,
 		ASSERT3U(rm->rm_scols, ==,
 		    cfg->dcf_parity + cfg->dcf_data[group % cfg->dcf_groups]);
 
-		for (c = 0; c < rm->rm_scols; c++) {
+		for (int c = 0; c < rm->rm_scols; c++) {
 			raidz_col_t *rc = &rm->rm_col[c];
 			vdev_t *cvd = vd->vdev_child[rc->rc_devidx];
 			char *status = "";
@@ -738,19 +731,27 @@ vdev_draid_group_degraded(vdev_t *vd, vdev_t *oldvd,
 				degraded = B_TRUE;
 				status = "*";
 			}
-			snprintf(buf + strlen(buf), sizeof (buf) - strlen(buf),
-			    U64FMT"%s ", cvd->vdev_id, status);
+			if (zfs_flags & ZFS_DEBUG_DRAID) {
+				snprintf(buf + strlen(buf),
+				    sizeof (buf) - strlen(buf), "%llu%s ",
+				    (u_longlong_t)cvd->vdev_id, status);
+			}
 		}
 	}
 
-	snprintf(buf + strlen(buf), sizeof (buf) - strlen(buf), "spares: ");
-	for (c = 0; c < cfg->dcf_spare; c++)
+	if (zfs_flags & ZFS_DEBUG_DRAID) {
 		snprintf(buf + strlen(buf), sizeof (buf) - strlen(buf),
-		    U64FMT" ", perm[cfg->dcf_children - 1 - c]);
-	draid_dbg(4, "%s %s at "U64FMT"K of "U64FMT"K: %s\n",
-	    degraded ? "Degraded" : "Healthy",
-	    mirror ? "mirror" : "draid",
-	    offset >> 10, size >> 10, buf);
+		    "spares: ");
+		for (int c = 0; c < cfg->dcf_spare; c++)
+			snprintf(buf + strlen(buf),
+			    sizeof (buf) - strlen(buf), "%llu",
+			    (u_longlong_t)perm[cfg->dcf_children - 1 - c]);
+
+		zfs_dbgmsg("%s %s at %lluK of %lluK: %s",
+		    degraded ? "Degraded" : "Healthy",
+		    mirror ? "mirror" : "draid",
+		    offset >> 10, size >> 10, buf);
+	}
 
 	kmem_free(perm, sizeof (perm[0]) * cfg->dcf_children);
 	(*zio->io_vsd_ops->vsd_free)(zio);
@@ -759,62 +760,18 @@ vdev_draid_group_degraded(vdev_t *vd, vdev_t *oldvd,
 	return (degraded);
 }
 
-/* Unfortunately this requires GPL-only symbols */
-#ifdef ZFS_IS_GPL_COMPATIBLE
-#define	__DRAID_HARDENING
-#else
-#undef __DRAID_HARDENING
-#endif
-
-static void
-vdev_draid_setup_page(const void *start, size_t sz, boolean_t readonly)
-{
-#ifdef __DRAID_HARDENING
-	ASSERT(sz != 0);
-
-	if (!IS_P2ALIGNED(sz, PAGESIZE) || !IS_P2ALIGNED(start, PAGESIZE)) {
-		draid_dbg(1, "Buffer not page aligned %p %lu\n", start, sz);
-		return;
-	}
-
-#ifdef _KERNEL
-	if (readonly)
-		set_memory_ro((unsigned long)start, sz >> PAGE_SHIFT);
-	else
-		set_memory_rw((unsigned long)start, sz >> PAGE_SHIFT);
-#endif
-#endif
-}
-
-static inline void
-vdev_draid_set_mem_ro(const void *start, size_t sz)
-{
-	vdev_draid_setup_page(start, sz, B_TRUE);
-}
-
-static inline void
-vdev_draid_set_mem_rw(const void *start, size_t sz)
-{
-	vdev_draid_setup_page(start, sz, B_FALSE);
-}
-
 static uint64_t *
 vdev_draid_create_base_perms(const uint8_t *perms,
     const struct vdev_draid_configuration *cfg)
 {
-	int i, j;
 	uint64_t children = cfg->dcf_children, *base_perms;
 	size_t sz = sizeof (uint64_t) * cfg->dcf_bases * children;
 
-#ifdef __DRAID_HARDENING
-	sz = P2ROUNDUP(sz, PAGESIZE);
-#endif
 	base_perms = kmem_alloc(sz, KM_SLEEP);
-	for (i = 0; i < cfg->dcf_bases; i++)
-		for (j = 0; j < children; j++)
+	for (int i = 0; i < cfg->dcf_bases; i++)
+		for (int j = 0; j < children; j++)
 			base_perms[i * children + j] = perms[i * children + j];
 
-	vdev_draid_set_mem_ro(base_perms, sz);
 	return (base_perms);
 }
 
@@ -830,7 +787,7 @@ vdev_draid_config_create(vdev_t *vd)
 
 	ASSERT(nvl != NULL);
 
-	if (!vdev_draid_config_validate(vd, nvl))
+	if (vdev_draid_config_validate(vd, nvl) != DRAIDCFG_OK)
 		return (NULL);
 
 	cfg = kmem_alloc(sizeof (*cfg), KM_SLEEP);
@@ -902,7 +859,7 @@ vdev_draid_open(vdev_t *vd, uint64_t *asize, uint64_t *max_asize,
 			continue;
 		}
 
-		/* find the smallest disk and largest sector size */
+		/* Find the smallest disk and largest sector size */
 		if (cvd->vdev_ops != &vdev_draid_spare_ops) {
 			*asize = MIN(*asize - 1, cvd->vdev_asize - 1) + 1;
 			*max_asize =
@@ -915,12 +872,9 @@ vdev_draid_open(vdev_t *vd, uint64_t *asize, uint64_t *max_asize,
 		abd_t *zabd;
 		size_t sz = 1ULL << MAX(*ashift, vd->vdev_ashift);
 
-#ifdef __DRAID_HARDENING
-		sz = P2ROUNDUP(sz, PAGESIZE);
-#endif
 		zabd = abd_alloc_linear(sz, B_TRUE);
 		abd_zero(zabd, sz);
-		vdev_draid_set_mem_ro(abd_to_buf(zabd), sz);
+
 		cfg->dcf_zero_abd = zabd;
 	}
 
@@ -952,14 +906,10 @@ vdev_draid_close(vdev_t *vd)
 
 	zabd = cfg->dcf_zero_abd;
 	ASSERT(zabd != NULL);
-	vdev_draid_set_mem_rw(abd_to_buf(zabd), zabd->abd_size);
 	abd_free(zabd);
 
 	sz = sizeof (uint64_t) * cfg->dcf_bases * cfg->dcf_children;
-#ifdef __DRAID_HARDENING
 	sz = P2ROUNDUP(sz, PAGESIZE);
-#endif
-	vdev_draid_set_mem_rw(cfg->dcf_base_perms, sz);
 	kmem_free((void *)cfg->dcf_base_perms, sz);
 
 	kmem_free(cfg, sizeof (*cfg));
@@ -1068,9 +1018,10 @@ vdev_draid_asize2psize(vdev_t *vd, uint64_t asize, uint64_t offset)
 	ASSERT0((asize >> ashift) % (ndata + vd->vdev_nparity));
 	psize = (asize / (ndata + vd->vdev_nparity)) * ndata;
 
+	/* XXX - Remove in finalized version */
 	if (psize > SPA_MAXBLOCKSIZE) {
-		draid_dbg(0, "Psize "U64FMT" too big at offset "U64FMT" from "
-		    "asize "U64FMT", ashift "U64FMT", %s MS "U64FMT"\n",
+		zfs_dbgmsg("psize %llu too big at offset %llu from "
+		    "asize %llu, ashift %llu, %s MS %llu",
 		    psize, offset, asize, ashift,
 		    mirror ? "mirrored" : "draid", msid);
 	}
@@ -1657,11 +1608,9 @@ vdev_dspare_io_start(zio_t *zio)
 		 * Parent vdev should have avoided reading from me in the first
 		 * place, unless this is a mirror scrub.
 		 */
-		draid_dbg(1, "Read from dead spare %s:%s:%s at "U64FMT"\n",
-		    vd->vdev_path,
-		    cvd->vdev_ops->vdev_op_type,
-		    cvd->vdev_path != NULL ? cvd->vdev_path : "NA",
-		    offset);
+		zfs_dbgmsg("read from dead spare %s:%s:%s at %llu",
+		    vd->vdev_path, cvd->vdev_ops->vdev_op_type,
+		    cvd->vdev_path != NULL ? cvd->vdev_path : "NA", offset);
 		return;
 	}
 
@@ -1694,8 +1643,3 @@ vdev_ops_t vdev_draid_spare_ops = {
 	.vdev_op_type = VDEV_TYPE_DRAID_SPARE,
 	.vdev_op_leaf = B_TRUE,
 };
-
-#if defined(_KERNEL)
-module_param(draid_debug_lvl, int, 0644);
-MODULE_PARM_DESC(draid_debug_lvl, "dRAID debugging verbose level");
-#endif

@@ -717,18 +717,23 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 		}
 	}
 
+	/*
+	 * Verify dRAID is supported and the configuration is valid.
+	 */
 	if (ops == &vdev_draid_ops) {
-		if (nvlist_lookup_nvlist(nv,
-		    ZPOOL_CONFIG_DRAIDCFG, &draidcfg) != 0)
+		if (nvlist_lookup_nvlist(nv, ZPOOL_CONFIG_DRAIDCFG,
+		    &draidcfg) != 0) {
 			return (SET_ERROR(EINVAL));
-		if (!vdev_draid_config_validate(NULL, draidcfg))
+		}
+
+		if (vdev_draid_config_validate(NULL, draidcfg) != DRAIDCFG_OK)
 			return (SET_ERROR(EINVAL));
+
+		/* spa_vdev_add() expects feature to be enabled */
 		if (alloctype == VDEV_ALLOC_ADD &&
 		    spa->spa_load_state != SPA_LOAD_CREATE &&
 		    !spa_feature_is_enabled(spa, SPA_FEATURE_DRAID)) {
-			cmn_err(CE_WARN, "pool '%s' adding a dRAID "
-			    "VDEV requires feature@draid", spa_name(spa));
-			return (SET_ERROR(EINVAL));
+			return (SET_ERROR(ENOTSUP));
 		}
 	}
 
