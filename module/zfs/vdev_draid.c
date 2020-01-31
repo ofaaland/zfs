@@ -514,7 +514,13 @@ vdev_draid_check_block(const vdev_t *vd, uint64_t start, uint64_t *sizep)
 	uint64_t end = start + asize - 1;
 
 	ASSERT0(mirror);
-	ASSERT3U(start >> vd->vdev_ms_shift, ==, end >> vd->vdev_ms_shift);
+
+	/*
+	 * An allocation may not span metaslabs.
+	 */
+	if (start >> vd->vdev_ms_shift != end >> vd->vdev_ms_shift)
+		return (-1ULL);
+
 	/*
 	 * A block is good if it:
 	 * - does not cross group boundary, AND

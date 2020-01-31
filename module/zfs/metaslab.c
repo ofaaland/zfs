@@ -1583,6 +1583,8 @@ metaslab_find_offset(metaslab_t *msp, range_seg_t *rs, range_tree_t *rt,
 	if (vd->vdev_ops == &vdev_draid_ops) {
 		*sizep = psize;
 		offset = vdev_draid_check_block(vd, offset, sizep);
+		if (offset == -1ULL)
+			return (-1ULL);
 	}
 	ASSERT3U(size, >=, *sizep);
 
