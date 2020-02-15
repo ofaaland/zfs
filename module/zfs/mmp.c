@@ -460,6 +460,7 @@ mmp_write_uberblock(spa_t *spa)
 	vdev_t *vd = NULL;
 	int label, error;
 	uint64_t offset;
+	hrtime_t then;
 
 	hrtime_t lock_acquire_time = gethrtime();
 	spa_config_enter(spa, SCL_STATE, mmp_tag, RW_READER);
@@ -469,9 +470,13 @@ mmp_write_uberblock(spa_t *spa)
 		    "gethrtime %llu", spa_name(spa), lock_acquire_time,
 		    gethrtime());
 
+	then = gethrtime();
 	mutex_enter(&mmp->mmp_io_lock);
+	report_duration(then, "enter mmp_io_lock in mmp_write_uberblock");
 
+	then = gethrtime();
 	error = mmp_next_leaf(spa);
+	report_duration(then, "mmp_next_leaf");
 
 	/*
 	 * spa_mmp_history has two types of entries:
@@ -482,6 +487,7 @@ mmp_write_uberblock(spa_t *spa)
 	 */
 
 	if (error) {
+		then = gethrtime();
 		mmp_delay_update(spa, B_FALSE);
 		if (mmp->mmp_skip_error == error) {
 			spa_mmp_history_set_skip(spa, mmp->mmp_kstat_id - 1);
@@ -494,11 +500,13 @@ mmp_write_uberblock(spa_t *spa)
 			    "gethrtime %llu fail_mask %#x", spa_name(spa),
 			    gethrtime(), error);
 		}
+		report_duration(then, "mmp history updates");
 		mutex_exit(&mmp->mmp_io_lock);
 		spa_config_exit(spa, SCL_STATE, mmp_tag);
 		return;
 	}
 
+	then = gethrtime();
 	vd = spa->spa_mmp.mmp_last_leaf;
 	if (mmp->mmp_skip_error != 0) {
 		mmp->mmp_skip_error = 0;
@@ -552,6 +560,7 @@ mmp_write_uberblock(spa_t *spa)
 	    ub->ub_mmp_delay, vd, label, vd->vdev_mmp_kstat_id, 0);
 
 	zio_nowait(zio);
+	report_duration(then, "mmp issue write");
 }
 
 static void
