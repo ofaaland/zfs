@@ -272,6 +272,16 @@ mmp_thread_stop(spa_t *spa)
 	mmp->mmp_thread_exiting = 0;
 }
 
+static void
+report_duration(hrtime_t then, const char* fn)
+{
+	unsigned int max_msec = 500;
+	unsigned int msec = NSEC2MSEC(gethrtime() - then);
+
+	if (msec > max_msec)
+		zfs_dbgmsg("MMP fn %s took %u msec", fn, msec);
+}
+
 typedef enum mmp_vdev_state_flag {
 	MMP_FAIL_NOT_WRITABLE	= (1 << 0),
 	MMP_FAIL_WRITE_PENDING	= (1 << 1),
@@ -567,12 +577,18 @@ mmp_thread(void *arg)
 	mmp_thread_enter(mmp, &cpr);
 
 	while (!mmp->mmp_thread_exiting) {
+		hrtime_t then;
+		int leaves;
 		hrtime_t next_time = gethrtime() +
 		    MSEC2NSEC(MMP_DEFAULT_INTERVAL);
-		int leaves = MAX(vdev_count_leaves(spa), 1);
+
+		then = gethrtime();
+		leaves = MAX(vdev_count_leaves(spa), 1);
+		report_duration(then, "vdev_count_leaves");
 
 		/* Detect changes in tunables or state */
 
+		then = gethrtime();
 		last_spa_suspended = suspended;
 		last_spa_multihost = multihost;
 		suspended = spa_suspended(spa);
@@ -618,12 +634,14 @@ mmp_thread(void *arg)
 			    mmp_fail_intervals, mmp_fail_ns, skip_wait, leaves,
 			    next_time);
 		}
+		report_duration(then, "detect changes in tunables or state");
 
 		/*
 		 * MMP off => on, or suspended => !suspended:
 		 * No writes occurred recently.  Update mmp_last_write to give
 		 * us some time to try.
 		 */
+		then = gethrtime();
 		if ((!last_spa_multihost && multihost) ||
 		    (last_spa_suspended && !suspended)) {
 			zfs_dbgmsg("MMP state change pool '%s': gethrtime %llu "
@@ -636,21 +654,25 @@ mmp_thread(void *arg)
 			mmp->mmp_delay = mmp_interval;
 			mutex_exit(&mmp->mmp_io_lock);
 		}
+		report_duration(then, "change to multihost or suspended");
 
 		/*
 		 * MMP on => off:
 		 * mmp_delay == 0 tells importing node to skip activity check.
 		 */
+		then = gethrtime();
 		if (last_spa_multihost && !multihost) {
 			mutex_enter(&mmp->mmp_io_lock);
 			mmp->mmp_delay = 0;
 			mutex_exit(&mmp->mmp_io_lock);
 		}
+		report_duration(then, "multihost turned off");
 
 		/*
 		 * Suspend the pool if no MMP write has succeeded in over
 		 * mmp_interval * mmp_fail_intervals nanoseconds.
 		 */
+		then = gethrtime();
 		if (multihost && !suspended && mmp_fail_intervals &&
 		    (gethrtime() - mmp->mmp_last_write) > mmp_fail_ns) {
 			zfs_dbgmsg("MMP suspending pool '%s': gethrtime %llu "
@@ -669,9 +691,12 @@ mmp_thread(void *arg)
 			    gethrtime());
 			zio_suspend(spa, NULL, ZIO_SUSPEND_MMP);
 		}
+		report_duration(then, "pool suspended");
 
+		then = gethrtime();
 		if (multihost && !suspended)
 			mmp_write_uberblock(spa);
+		report_duration(then, "mmp block written");
 
 		if (skip_wait > 0) {
 			next_time = gethrtime() + MSEC2NSEC(MMP_MIN_INTERVAL) /
@@ -679,11 +704,13 @@ mmp_thread(void *arg)
 			skip_wait--;
 		}
 
+		then = gethrtime();
 		CALLB_CPR_SAFE_BEGIN(&cpr);
 		(void) cv_timedwait_sig_hires(&mmp->mmp_thread_cv,
 		    &mmp->mmp_thread_lock, next_time, USEC2NSEC(100),
 		    CALLOUT_FLAG_ABSOLUTE);
 		CALLB_CPR_SAFE_END(&cpr, &mmp->mmp_thread_lock);
+		report_duration(then, "sleep");
 	}
 
 	/* Outstanding writes are allowed to complete. */
