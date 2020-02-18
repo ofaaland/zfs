@@ -278,8 +278,10 @@ report_duration(hrtime_t then, const char* fn)
 	unsigned int max_msec = 500;
 	unsigned int msec = NSEC2MSEC(gethrtime() - then);
 
-	if (msec > max_msec)
+	if (msec > max_msec) {
 		zfs_dbgmsg("MMP fn %s took %u msec", fn, msec);
+		cmn_err(CE_WARN, "MMP fn %s took %u msec", fn, msec);
+	}
 }
 
 typedef enum mmp_vdev_state_flag {
@@ -693,12 +695,13 @@ mmp_thread(void *arg)
 			    (u_longlong_t)mmp_fail_intervals,
 			    (u_longlong_t)mmp_fail_ns);
 			cmn_err(CE_WARN, "MMP writes to pool '%s' have not "
-			    "succeeded in over %llu ms; suspending pool. "
+			    "succeeded in over %llu ms; "
+				"NORMALLY WOULD SUSPEND POOL NOW, BUT NOT. "
 			    "Hrtime %llu",
 			    spa_name(spa),
 			    NSEC2MSEC(gethrtime() - mmp->mmp_last_write),
 			    gethrtime());
-			zio_suspend(spa, NULL, ZIO_SUSPEND_MMP);
+			//zio_suspend(spa, NULL, ZIO_SUSPEND_MMP);
 		}
 		report_duration(then, "pool suspended");
 
