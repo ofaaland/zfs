@@ -593,6 +593,15 @@ mmp_thread(void *arg)
 		hrtime_t next_time = gethrtime() +
 		    MSEC2NSEC(MMP_DEFAULT_INTERVAL);
 
+		cmn_err(CE_WARN, "MMP loop begin pool '%s': gethrtime %llu "
+		    "mmp_last_write %llu mmp_interval %llu "
+		    "mmp_fail_intervals %llu mmp_fail_ns %llu",
+		    spa_name(spa), (u_longlong_t)gethrtime(),
+		    (u_longlong_t)mmp->mmp_last_write,
+		    (u_longlong_t)mmp_interval,
+		    (u_longlong_t)mmp_fail_intervals,
+		    (u_longlong_t)mmp_fail_ns);
+
 		then = gethrtime();
 		leaves = MAX(vdev_count_leaves(spa), 1);
 		report_duration(then, "vdev_count_leaves");
@@ -686,6 +695,14 @@ mmp_thread(void *arg)
 		then = gethrtime();
 		if (multihost && !suspended && mmp_fail_intervals &&
 		    (gethrtime() - mmp->mmp_last_write) > mmp_fail_ns) {
+			cmn_err(CE_WARN, "MMP suspending pool '%s': gethrtime %llu "
+			    "mmp_last_write %llu mmp_interval %llu "
+			    "mmp_fail_intervals %llu mmp_fail_ns %llu",
+			    spa_name(spa), (u_longlong_t)gethrtime(),
+			    (u_longlong_t)mmp->mmp_last_write,
+			    (u_longlong_t)mmp_interval,
+			    (u_longlong_t)mmp_fail_intervals,
+			    (u_longlong_t)mmp_fail_ns);
 			zfs_dbgmsg("MMP suspending pool '%s': gethrtime %llu "
 			    "mmp_last_write %llu mmp_interval %llu "
 			    "mmp_fail_intervals %llu mmp_fail_ns %llu",
