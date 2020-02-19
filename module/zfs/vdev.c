@@ -4814,10 +4814,12 @@ void
 vdev_xlate(vdev_t *vd, const range_seg64_t *logical_rs,
     range_seg64_t *physical_rs)
 {
+	ASSERT3P(vd, !=, NULL);
 	/*
 	 * Walk up the vdev tree
 	 */
 	if (vd != vd->vdev_top) {
+		ASSERT3P(vd->vdev_parent, !=, NULL);
 		vdev_xlate(vd->vdev_parent, logical_rs, physical_rs);
 	} else {
 		/*

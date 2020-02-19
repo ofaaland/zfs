@@ -322,6 +322,7 @@ vdev_initialize_ranges(vdev_t *vd, abd_t *data)
 static void
 vdev_initialize_calculate_progress(vdev_t *vd)
 {
+	ASSERT(vd != NULL);
 	ASSERT(spa_config_held(vd->vdev_spa, SCL_CONFIG, RW_READER) ||
 	    spa_config_held(vd->vdev_spa, SCL_CONFIG, RW_WRITER));
 	ASSERT(vd->vdev_leaf_zap != 0);
@@ -330,7 +331,9 @@ vdev_initialize_calculate_progress(vdev_t *vd)
 	vd->vdev_initialize_bytes_done = 0;
 
 	for (uint64_t i = 0; i < vd->vdev_top->vdev_ms_count; i++) {
+		ASSERT(vd->vdev_top != NULL);
 		metaslab_t *msp = vd->vdev_top->vdev_ms[i];
+		ASSERT(vd->vdev_top->vdev_ms[i] != NULL);
 		mutex_enter(&msp->ms_lock);
 
 		uint64_t ms_free = msp->ms_size -
@@ -401,6 +404,7 @@ static int
 vdev_initialize_load(vdev_t *vd)
 {
 	int err = 0;
+	ASSERT(vd != NULL);
 	ASSERT(spa_config_held(vd->vdev_spa, SCL_CONFIG, RW_READER) ||
 	    spa_config_held(vd->vdev_spa, SCL_CONFIG, RW_WRITER));
 	ASSERT(vd->vdev_leaf_zap != 0);
@@ -696,10 +700,12 @@ vdev_initialize_stop_all(vdev_t *vd, vdev_initializing_state_t tgt_state)
 void
 vdev_initialize_restart(vdev_t *vd)
 {
+	ASSERT(vd != NULL);
 	ASSERT(MUTEX_HELD(&spa_namespace_lock));
 	ASSERT(!spa_config_held(vd->vdev_spa, SCL_ALL, RW_WRITER));
 
 	if (vd->vdev_leaf_zap != 0) {
+		ASSERT(vd->vdev_spa != NULL);
 		mutex_enter(&vd->vdev_initialize_lock);
 		uint64_t initialize_state = VDEV_INITIALIZE_NONE;
 		int err = zap_lookup(vd->vdev_spa->spa_meta_objset,
@@ -715,6 +721,7 @@ vdev_initialize_restart(vdev_t *vd)
 		ASSERT(err == 0 || err == ENOENT);
 		vd->vdev_initialize_action_time = (time_t)timestamp;
 
+		ASSERT(vd->vdev_top != NULL);
 		if (vd->vdev_initialize_state == VDEV_INITIALIZE_SUSPENDED ||
 		    vd->vdev_offline) {
 			/* load progress for reporting, but don't resume */
