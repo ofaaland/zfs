@@ -4833,6 +4833,41 @@ vdev_xlate(vdev_t *vd, const range_seg64_t *logical_rs,
 	}
 
 	vdev_t *pvd = vd->vdev_parent;
+	if (!pvd || !pvd->vdev_ops || !pvd->vdev_ops->vdev_op_xlate) {
+		vdev_t *info_vd = vd;
+		char *msg = "pvd bad: vd";
+
+		if (pvd) {
+			info_vd = pvd;
+			msg = "vdev_ops bad: pvd";
+			if (pvd->vdev_ops) {
+				msg = "vdev_op_xlate bad: pvd";
+			}
+		}
+
+		cmn_err(CE_WARN, "%s %p %llu %llu %llu %llu %llu %llu %p %p %#0x %#0x %#0x %#0x %llu %llu %#0x %p %#0x %#0x",
+		msg,
+		info_vd,
+		info_vd->vdev_id,
+		info_vd->vdev_guid,
+		info_vd->vdev_guid_sum,
+		info_vd->vdev_orig_guid,
+		info_vd->vdev_state,
+		info_vd->vdev_prevstate,
+		info_vd->vdev_top,
+		info_vd->vdev_parent,
+		info_vd->vdev_expanding,
+		info_vd->vdev_reopening,
+		info_vd->vdev_remove_wanted,
+		info_vd->vdev_probe_wanted,
+		info_vd->vdev_islog,
+		info_vd->vdev_removing,
+		info_vd->vdev_ishole,
+		info_vd->vdev_cfg,
+		info_vd->vdev_initialize_exit_wanted,
+		info_vd->vdev_initialize_state);
+	}
+
 	ASSERT3P(pvd, !=, NULL);
 	ASSERT3P(pvd->vdev_ops->vdev_op_xlate, !=, NULL);
 
