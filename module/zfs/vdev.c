@@ -1642,6 +1642,8 @@ vdev_set_deflate_ratio(vdev_t *vd)
 	}
 }
 
+char *taggy = "vdev_open";
+
 /*
  * Prepare a virtual device for access.
  */
@@ -1851,15 +1853,30 @@ vdev_open(vdev_t *vd)
 	vdev_set_min_asize(vd);
 
 	/*
-	 * Ensure we can issue some IO before declaring the
-	 * vdev open for business.
+	 * Must reset these before we drop the write lock.
+	 * See comment in vdev_probe() about transitions from TRUE to FALSE.
 	 */
+	vd->vdev_cant_read = B_FALSE;
+	vd->vdev_cant_write = B_FALSE;
+
+	/*
+	 * Ensure we can issue some IO before declaring the
+	 * vdev open for business.  Drop the zio write lock since
+	 * the probe may take a long time.
+	 */
+	int locks = spa_config_held(spa, SCL_ALL, RW_WRITER);
+	spa_config_exit(spa, locks, taggy);
+	spa_config_enter(spa, locks, taggy, RW_READER);
 	if (vd->vdev_ops->vdev_op_leaf &&
 	    (error = zio_wait(vdev_probe(vd, NULL))) != 0) {
 		vdev_set_state(vd, B_TRUE, VDEV_STATE_FAULTED,
 		    VDEV_AUX_ERR_EXCEEDED);
+		spa_config_exit(spa, locks, taggy);
+		spa_config_enter(spa, locks, taggy, RW_WRITER);
 		return (error);
 	}
+	spa_config_exit(spa, locks, taggy);
+	spa_config_enter(spa, locks, taggy, RW_WRITER);
 
 	/*
 	 * Track the min and max ashift values for normal data devices.

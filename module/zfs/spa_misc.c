@@ -515,7 +515,7 @@ spa_config_enter(spa_t *spa, int locks, const void *tag, krw_t rw)
 		(void) zfs_refcount_add(&scl->scl_count, tag);
 		mutex_exit(&scl->scl_lock);
 	}
-	ASSERT3U(wlocks_held, <=, locks);
+//	ASSERT3U(wlocks_held, <=, locks);
 }
 
 void
