@@ -3437,6 +3437,152 @@ zpool_do_checkpoint(int argc, char **argv)
 #define	CHECKPOINT_OPT	1024
 
 /*
+ * User-friendly strings for spa_load_state_t
+ */
+static char *load_state_names[] = {
+	[SPA_LOAD_NONE] = "Import Complete",
+	[SPA_LOAD_OPEN] = "Importing",
+	[SPA_LOAD_IMPORT] = "Importing",
+	[SPA_LOAD_TRYIMPORT] = "Verifying Configuration",
+	[SPA_LOAD_RECOVER] = "Recovering Pool",
+	[SPA_LOAD_ERROR] = "Import Error",
+	[SPA_LOAD_CREATE] = "Importing"
+};
+
+typedef struct import_progress_args {
+	boolean_t import_done;
+} import_progress_args_t;
+
+/*
+ * SILENT_SECS is amount of time we think user will wait before
+ * thinking something is broken.  SLEEP_USEC is time between
+ * checks to see if import is done or state changed.
+ */
+#define	IMPORT_PROGRESS_SILENT_SECS	2
+#define	IMPORT_PROGRESS_PERIOD_SECS	1
+#define	IMPORT_PROGRESS_SLEEP_USEC	100*1000
+
+static void *
+report_import_progress_thread(void *arg)
+{
+	char path[] = "/proc/spl/kstat/zfs/import_progress";
+	import_progress_args_t *pa = arg;
+	time_t start_time = time(NULL);
+	time_t last_report = 0;
+	unsigned long long last_pool_guid = 0;
+	unsigned long long last_multihost_secs_time = 0;
+	unsigned long long last_max_txg = 0;
+	int rc = 0;
+	int import_kstat;
+
+	ASSERT(arg);
+
+	import_kstat = open(path, O_RDONLY);
+	if (import_kstat < 0)
+		rc = -1;
+
+	while (pa->import_done == B_FALSE && rc >= 0) {
+		char *pool_name;
+		ssize_t count;
+		unsigned long long load_state;
+		unsigned long long pool_guid;
+		unsigned long long multihost_secs;
+		unsigned long long max_txg;
+		char kstat_buf[512];
+		char mmp_status_buf[100];
+		char pool_rewind_buf[100];
+		char *bufp;
+		off_t off;
+
+		if ((time(NULL) - start_time) < IMPORT_PROGRESS_SILENT_SECS)
+			continue;
+
+		if ((time(NULL) - last_report) < IMPORT_PROGRESS_PERIOD_SECS)
+			continue;
+
+		last_report = time(NULL);
+
+		off = lseek(import_kstat, 0, SEEK_SET);
+		if (off < 0) {
+			rc = -1;
+			break;
+		}
+
+		/* Read into a buffer first for debugging parse failure */
+		bzero(kstat_buf, sizeof (kstat_buf));
+		count = read(import_kstat, kstat_buf, sizeof (kstat_buf) - 1);
+		if (count < 0) {
+			fprintf(stderr, "Import monitor: read kstat fail %d\n",
+			    errno);
+			continue;
+		}
+
+		/* Skip header line */
+		for (bufp = kstat_buf; *bufp && *bufp != '\n'; bufp++)
+			;
+
+		count = sscanf(bufp, "%llu %llu %llu %llu %ms\n",
+		    &pool_guid, &load_state, &multihost_secs,
+		    &max_txg, &pool_name);
+
+		if (count == 5) {
+			time_t multihost_secs_time = time(NULL) +
+			    multihost_secs;
+
+			mmp_status_buf[0] = '\0';
+			pool_rewind_buf[0] = '\0';
+
+			if (pool_guid != last_pool_guid ||
+			    multihost_secs_time != last_multihost_secs_time)
+				snprintf(mmp_status_buf,
+				    sizeof (mmp_status_buf), "Multihost is "
+				    "checking for a remote import.\nCheck will "
+				    "complete by %s",
+				    ctime(&multihost_secs_time));
+
+			if ((pool_guid != last_pool_guid ||
+			    max_txg != last_max_txg) &&
+			    max_txg != 0)  {
+				snprintf(pool_rewind_buf,
+				    sizeof (pool_rewind_buf), "%s rewind txg "
+				    "%llu\n", load_state_names[load_state],
+				    max_txg);
+			}
+
+			if (mmp_status_buf[0] != '\0' ||
+			    pool_rewind_buf[0] != '\0') {
+				printf("Pool %s (guid %llu):\n%s%s\n",
+				    pool_name, pool_guid, mmp_status_buf,
+				    pool_rewind_buf);
+			}
+
+			last_pool_guid = pool_guid;
+			last_multihost_secs_time = multihost_secs_time;
+			last_max_txg = max_txg;
+
+			if (pool_name)
+				free(pool_name);
+		} else {
+			fprintf(stderr, "Import monitor failure: "
+			    "unable to parse %s\n", kstat_buf);
+		}
+
+		usleep(IMPORT_PROGRESS_SLEEP_USEC);
+	}
+
+	if (rc < 0) {
+		fprintf(stderr, "%s is not available to monitor the "
+		    "progress of the import.  The import is "
+		    "continuing.\n", path);
+	}
+
+	if (import_kstat > 0)
+		close(import_kstat);
+
+	return (NULL);
+}
+
+/*
  * zpool import [-d dir] [-D]
  *       import [-o mntopts] [-o prop=value] ... [-R root] [-D] [-l]
  *              [-d dir | -c cachefile | -s] [-f] -a
@@ -3488,6 +3634,9 @@ zpool_do_checkpoint(int argc, char **argv)
  *	--rewind-to-checkpoint
  *		Import the pool and revert back to the checkpoint.
  *
+ *       -v	Report import progress periodically, for slow imports.
+ *
+ *
  * The import command scans for pools to import, and import pools based on pool
  * name and GUID.  The pool can also be renamed as part of the import process.
  */
@@ -3514,6 +3663,7 @@ zpool_do_import(int argc, char **argv)
 	boolean_t do_rewind = B_FALSE;
 	boolean_t xtreme_rewind = B_FALSE;
 	boolean_t do_scan = B_FALSE;
+	boolean_t do_verbose = B_FALSE;
 	boolean_t pool_exists = B_FALSE;
 	boolean_t pool_specified = B_FALSE;
 	uint64_t txg = -1ULL;
@@ -3521,13 +3671,16 @@ zpool_do_import(int argc, char **argv)
 	importargs_t idata = { 0 };
 	char *endptr;
 
+	pthread_t tid;
+	import_progress_args_t pa = { B_FALSE };
+
 	struct option long_options[] = {
 		{"rewind-to-checkpoint", no_argument, NULL, CHECKPOINT_OPT},
 		{0, 0, 0, 0}
 	};
 
 	/* check options */
-	while ((c = getopt_long(argc, argv, ":aCc:d:DEfFlmnNo:R:stT:VX",
+	while ((c = getopt_long(argc, argv, ":aCc:d:DEfFlmnNo:R:stT:vVX",
 	    long_options, NULL)) != -1) {
 		switch (c) {
 		case 'a':
@@ -3600,6 +3753,9 @@ zpool_do_import(int argc, char **argv)
 				usage(B_FALSE);
 			}
 			rewind_policy = ZPOOL_DO_REWIND | ZPOOL_EXTREME_REWIND;
+			break;
+		case 'v':
+			do_verbose = B_TRUE;
 			break;
 		case 'V':
 			flags |= ZFS_IMPORT_VERBATIM;
@@ -3749,6 +3905,15 @@ zpool_do_import(int argc, char **argv)
 	idata.scan = do_scan;
 	idata.policy = policy;
 
+	if (do_verbose) {
+		int pthread_err;
+		pthread_err = pthread_create(&tid, NULL,
+		    report_import_progress_thread, &pa);
+		if (err)
+			fprintf(stderr, "Unable to report progress: "
+			    "err %d.  Import will continue.\n", pthread_err);
+	}
+
 	pools = zpool_search_import(g_zfs, &idata, &libzfs_config_ops);
 
 	if (pools != NULL && pool_exists &&
@@ -3812,6 +3977,20 @@ zpool_do_import(int argc, char **argv)
 		    argc >= 2 ? argv[1] : NULL,
 		    do_destroyed, pool_specified, do_all, &idata);
 	}
+
+	if (do_verbose) {
+		pa.import_done = B_TRUE;
+		(void) pthread_cancel(tid);
+		(void) pthread_join(tid, NULL);
+	}
+
+	/*
+	 * If we were just looking for pools, report an error if none were
+	 * found.
+	 */
+	if (argc == 0)
+		(void) fprintf(stderr,
+		    gettext("no pools available to import\n"));
 
 error:
 	nvlist_free(props);
