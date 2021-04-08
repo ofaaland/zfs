@@ -18,7 +18,12 @@ BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 %(/bin/echo -e "\
 Requires:       @PACKAGE@ = %{version}\n\
 Conflicts:      @PACKAGE@-dkms\n\
-Obsoletes:      spl-kmod\n\n" > %{_sourcedir}/kmod-preamble)
+Obsoletes:      spl-kmod\n\
+Provides:      spl\n\n" > %{_sourcedir}/kmod-preamble)
+
+# Provides spl necessary to upgrade from zfs-0.7 to zfs-2
+# I believe it's necessary because kmod-spl-0.7 requires spl and this
+# requirement is not satisfied by Obsoletes.  But not certain.
 
 # LDFLAGS are not sanitized by arch/*/Makefile for these architectures.
 %ifarch ppc ppc64 ppc64le aarch64

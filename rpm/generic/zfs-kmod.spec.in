@@ -57,6 +57,11 @@ BuildRequires:  gcc, make
 BuildRequires:  elfutils-libelf-devel
 %endif
 
+# Necessary to upgrade from zfs-0.7 to zfs-2
+# I believe it's necessary because kmod-spl-0.7 requires spl and this
+# requirement is not satisfied by Obsoletes.  But not certain.
+Provides:      spl
+
 # The developments headers will conflict with the dkms packages.
 Conflicts:      %{module}-dkms
 
