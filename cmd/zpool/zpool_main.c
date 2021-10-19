@@ -3467,8 +3467,8 @@ report_import_progress_thread(void *arg)
 {
 	char path[] = "/proc/spl/kstat/zfs/import_progress";
 	import_progress_args_t *pa = arg;
-	time_t start_time = time(NULL);
-	time_t last_report = 0;
+	struct timespec start = {0};
+	struct timespec last_report = {0};
 	u_longlong_t last_pool_guid = 0;
 	u_longlong_t last_multihost_secs_time = 0;
 	u_longlong_t last_max_txg = 0;
@@ -3479,6 +3479,7 @@ report_import_progress_thread(void *arg)
 	if (import_kstat < 0)
 		rc = -1;
 
+	(void) clock_gettime(CLOCK_MONOTONIC, &start);
 	while (pa->import_done == B_FALSE && rc >= 0) {
 		char *pool_name;
 		ssize_t count;
@@ -3491,13 +3492,16 @@ report_import_progress_thread(void *arg)
 		char pool_rewind_buf[100];
 		char *bufp;
 		off_t off;
+		struct timespec now = {0};
 
-		if ((time(NULL) - start_time) < IMPORT_PROGRESS_SILENT_SECS) {
+		(void) clock_gettime(CLOCK_MONOTONIC, &now);
+
+		if ((now.tv_sec - start.tv_sec) < IMPORT_PROGRESS_SILENT_SECS) {
 			usleep(IMPORT_PROGRESS_SLEEP_USEC);
 			continue;
 		}
 
-		if ((time(NULL) - last_report) < IMPORT_PROGRESS_PERIOD_SECS) {
+		if ((now.tv_sec - last_report.tv_sec) < IMPORT_PROGRESS_PERIOD_SECS) {
 			usleep(IMPORT_PROGRESS_SLEEP_USEC);
 			continue;
 		}
@@ -3518,8 +3522,6 @@ report_import_progress_thread(void *arg)
 			continue;
 		}
 
-		last_report = time(NULL);
-
 		/* Skip header line */
 		bufp = strchr(kstat_buf, '\n');
 		if (bufp == NULL) {
@@ -3533,8 +3535,10 @@ report_import_progress_thread(void *arg)
 		    &max_txg, &pool_name);
 
 		if (count == 5) {
-			time_t multihost_secs_time = time(NULL) +
-			    multihost_secs;
+			(void) clock_gettime(CLOCK_MONOTONIC, &last_report);
+
+			/* User needs to see wall-clock time */
+			time_t multihost_finish = time(NULL) + multihost_secs;
 
 			mmp_status_buf[0] = '\0';
 			pool_rewind_buf[0] = '\0';
@@ -3545,7 +3549,7 @@ report_import_progress_thread(void *arg)
 				    sizeof (mmp_status_buf), "Multihost is "
 				    "checking for a remote import.\nCheck will "
 				    "complete by %s",
-				    ctime(&multihost_secs_time));
+				    ctime(&multihost_finish));
 
 			if ((pool_guid != last_pool_guid ||
 			    max_txg != last_max_txg) &&
