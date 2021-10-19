@@ -3458,8 +3458,8 @@ typedef struct import_progress_args {
  * thinking something is broken.  SLEEP_USEC is time between
  * checks to see if import is done or state changed.
  */
-#define	IMPORT_PROGRESS_SILENT_SECS	2
-#define	IMPORT_PROGRESS_PERIOD_SECS	1
+#define	IMPORT_PROGRESS_SILENT_SECS	10
+#define	IMPORT_PROGRESS_PERIOD_SECS	5
 #define	IMPORT_PROGRESS_SLEEP_USEC	100*1000
 
 static void *
@@ -3469,13 +3469,11 @@ report_import_progress_thread(void *arg)
 	import_progress_args_t *pa = arg;
 	time_t start_time = time(NULL);
 	time_t last_report = 0;
-	unsigned long long last_pool_guid = 0;
-	unsigned long long last_multihost_secs_time = 0;
-	unsigned long long last_max_txg = 0;
+	u_longlong_t last_pool_guid = 0;
+	u_longlong_t last_multihost_secs_time = 0;
+	u_longlong_t last_max_txg = 0;
 	int rc = 0;
 	int import_kstat;
-
-	ASSERT(arg);
 
 	import_kstat = open(path, O_RDONLY);
 	if (import_kstat < 0)
@@ -3484,23 +3482,25 @@ report_import_progress_thread(void *arg)
 	while (pa->import_done == B_FALSE && rc >= 0) {
 		char *pool_name;
 		ssize_t count;
-		unsigned long long load_state;
-		unsigned long long pool_guid;
-		unsigned long long multihost_secs;
-		unsigned long long max_txg;
+		u_longlong_t load_state;
+		u_longlong_t pool_guid;
+		u_longlong_t multihost_secs;
+		u_longlong_t max_txg;
 		char kstat_buf[512];
 		char mmp_status_buf[100];
 		char pool_rewind_buf[100];
 		char *bufp;
 		off_t off;
 
-		if ((time(NULL) - start_time) < IMPORT_PROGRESS_SILENT_SECS)
+		if ((time(NULL) - start_time) < IMPORT_PROGRESS_SILENT_SECS) {
+			usleep(IMPORT_PROGRESS_SLEEP_USEC);
 			continue;
+		}
 
-		if ((time(NULL) - last_report) < IMPORT_PROGRESS_PERIOD_SECS)
+		if ((time(NULL) - last_report) < IMPORT_PROGRESS_PERIOD_SECS) {
+			usleep(IMPORT_PROGRESS_SLEEP_USEC);
 			continue;
-
-		last_report = time(NULL);
+		}
 
 		off = lseek(import_kstat, 0, SEEK_SET);
 		if (off < 0) {
@@ -3514,13 +3514,20 @@ report_import_progress_thread(void *arg)
 		if (count < 0) {
 			fprintf(stderr, "Import monitor: read kstat fail %d\n",
 			    errno);
+			usleep(IMPORT_PROGRESS_SLEEP_USEC);
 			continue;
 		}
 
-		/* Skip header line */
-		for (bufp = kstat_buf; *bufp && *bufp != '\n'; bufp++)
-			;
+		last_report = time(NULL);
 
+		/* Skip header line */
+		bufp = strchr(kstat_buf, '\n');
+		if (bufp == NULL) {
+			usleep(IMPORT_PROGRESS_SLEEP_USEC);
+			continue;
+		}
+
+		pool_name = NULL;
 		count = sscanf(bufp, "%llu %llu %llu %llu %ms\n",
 		    &pool_guid, &load_state, &multihost_secs,
 		    &max_txg, &pool_name);
@@ -3560,13 +3567,12 @@ report_import_progress_thread(void *arg)
 			last_multihost_secs_time = multihost_secs_time;
 			last_max_txg = max_txg;
 
-			if (pool_name)
-				free(pool_name);
 		} else {
 			fprintf(stderr, "Import monitor failure: "
 			    "unable to parse %s\n", kstat_buf);
 		}
 
+		free(pool_name);
 		usleep(IMPORT_PROGRESS_SLEEP_USEC);
 	}
 
@@ -3983,14 +3989,6 @@ zpool_do_import(int argc, char **argv)
 		(void) pthread_cancel(tid);
 		(void) pthread_join(tid, NULL);
 	}
-
-	/*
-	 * If we were just looking for pools, report an error if none were
-	 * found.
-	 */
-	if (argc == 0)
-		(void) fprintf(stderr,
-		    gettext("no pools available to import\n"));
 
 error:
 	nvlist_free(props);
