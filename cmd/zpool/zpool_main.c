@@ -3530,51 +3530,51 @@ report_import_progress_thread(void *arg)
 		}
 
 		pool_name = NULL;
-		count = sscanf(bufp, "%llu %llu %llu %llu %ms\n",
-		    &pool_guid, &load_state, &multihost_secs,
-		    &max_txg, &pool_name);
+		count = sscanf(bufp, "%llu %llu %llu %llu %ms\n", &pool_guid,
+		    &load_state, &multihost_secs, &max_txg, &pool_name);
 
-		if (count == 5) {
-			(void) clock_gettime(CLOCK_MONOTONIC, &last_report);
-
-			/* User needs to see wall-clock time */
-			time_t multihost_finish = time(NULL) + multihost_secs;
-
-			mmp_status_buf[0] = '\0';
-			pool_rewind_buf[0] = '\0';
-
-			if (pool_guid != last_pool_guid ||
-			    multihost_secs_time != last_multihost_secs_time)
-				snprintf(mmp_status_buf,
-				    sizeof (mmp_status_buf), "Multihost is "
-				    "checking for a remote import.\nCheck will "
-				    "complete by %s",
-				    ctime(&multihost_finish));
-
-			if ((pool_guid != last_pool_guid ||
-			    max_txg != last_max_txg) &&
-			    max_txg != 0)  {
-				snprintf(pool_rewind_buf,
-				    sizeof (pool_rewind_buf), "%s rewind txg "
-				    "%llu\n", load_state_names[load_state],
-				    max_txg);
-			}
-
-			if (mmp_status_buf[0] != '\0' ||
-			    pool_rewind_buf[0] != '\0') {
-				printf("Pool %s (guid %llu):\n%s%s\n",
-				    pool_name, pool_guid, mmp_status_buf,
-				    pool_rewind_buf);
-			}
-
-			last_pool_guid = pool_guid;
-			last_multihost_secs_time = multihost_secs_time;
-			last_max_txg = max_txg;
-
-		} else {
+		if (count < 5) {
 			fprintf(stderr, "Import monitor failure: "
 			    "unable to parse %s\n", kstat_buf);
+			usleep(IMPORT_PROGRESS_SLEEP_USEC);
+			continue;
 		}
+
+		(void) clock_gettime(CLOCK_MONOTONIC, &last_report);
+
+		/* User needs to see wall-clock time */
+		time_t multihost_finish = time(NULL) + multihost_secs;
+
+		mmp_status_buf[0] = '\0';
+		pool_rewind_buf[0] = '\0';
+
+		if (pool_guid != last_pool_guid ||
+		    multihost_secs_time != last_multihost_secs_time)
+			snprintf(mmp_status_buf,
+			    sizeof (mmp_status_buf), "Multihost is "
+			    "checking for a remote import.\nCheck will "
+			    "complete by %s",
+			    ctime(&multihost_finish));
+
+		if ((pool_guid != last_pool_guid ||
+		    max_txg != last_max_txg) &&
+		    max_txg != 0)  {
+			snprintf(pool_rewind_buf,
+			    sizeof (pool_rewind_buf), "%s rewind txg "
+			    "%llu\n", load_state_names[load_state],
+			    max_txg);
+		}
+
+		if (mmp_status_buf[0] != '\0' ||
+		    pool_rewind_buf[0] != '\0') {
+			printf("Pool %s (guid %llu):\n%s%s\n",
+			    pool_name, pool_guid, mmp_status_buf,
+			    pool_rewind_buf);
+		}
+
+		last_pool_guid = pool_guid;
+		last_multihost_secs_time = multihost_secs_time;
+		last_max_txg = max_txg;
 
 		free(pool_name);
 		usleep(IMPORT_PROGRESS_SLEEP_USEC);
