@@ -3458,9 +3458,9 @@ typedef struct import_progress_args {
  * thinking something is broken.  SLEEP_USEC is time between
  * checks to see if import is done or state changed.
  */
-#define	IMPORT_PROGRESS_SILENT_SECS	10
-#define	IMPORT_PROGRESS_PERIOD_SECS	5
-#define	IMPORT_PROGRESS_SLEEP_USEC	100*1000
+#define	PROGRESS_SILENT_SECS	10
+#define	PROGRESS_PERIOD_SECS	5
+#define	PROGRESS_SLEEP_USEC	100*1000
 
 static void *
 report_import_progress_thread(void *arg)
@@ -3496,13 +3496,13 @@ report_import_progress_thread(void *arg)
 
 		(void) clock_gettime(CLOCK_MONOTONIC, &now);
 
-		if ((now.tv_sec - start.tv_sec) < IMPORT_PROGRESS_SILENT_SECS) {
-			usleep(IMPORT_PROGRESS_SLEEP_USEC);
+		if ((now.tv_sec - start.tv_sec) < PROGRESS_SILENT_SECS) {
+			usleep(PROGRESS_SLEEP_USEC);
 			continue;
 		}
 
-		if ((now.tv_sec - last_report.tv_sec) < IMPORT_PROGRESS_PERIOD_SECS) {
-			usleep(IMPORT_PROGRESS_SLEEP_USEC);
+		if ((now.tv_sec - last_report.tv_sec) < PROGRESS_PERIOD_SECS) {
+			usleep(PROGRESS_SLEEP_USEC);
 			continue;
 		}
 
@@ -3518,14 +3518,14 @@ report_import_progress_thread(void *arg)
 		if (count < 0) {
 			fprintf(stderr, "Import monitor: read kstat fail %d\n",
 			    errno);
-			usleep(IMPORT_PROGRESS_SLEEP_USEC);
+			usleep(PROGRESS_SLEEP_USEC);
 			continue;
 		}
 
 		/* Skip header line */
 		bufp = strchr(kstat_buf, '\n');
 		if (bufp == NULL) {
-			usleep(IMPORT_PROGRESS_SLEEP_USEC);
+			usleep(PROGRESS_SLEEP_USEC);
 			continue;
 		}
 
@@ -3536,7 +3536,7 @@ report_import_progress_thread(void *arg)
 		if (count < 5) {
 			fprintf(stderr, "Import monitor failure: "
 			    "unable to parse %s\n", kstat_buf);
-			usleep(IMPORT_PROGRESS_SLEEP_USEC);
+			usleep(PROGRESS_SLEEP_USEC);
 			continue;
 		}
 
@@ -3577,7 +3577,7 @@ report_import_progress_thread(void *arg)
 		last_max_txg = max_txg;
 
 		free(pool_name);
-		usleep(IMPORT_PROGRESS_SLEEP_USEC);
+		usleep(PROGRESS_SLEEP_USEC);
 	}
 
 	if (rc < 0) {
