@@ -816,13 +816,13 @@ update_vdevs_config_dev_sysfs_path(nvlist_t *config)
 int
 open_kstat(char *path_suffix)
 {
-	char kstat_prefix[]="/proc/spl/kstat/zfs/";
+	char kstat_prefix[] = "/proc/spl/kstat/zfs/";
 	char path[MAXPATHLEN];
 
-	if (strlcpy(path, kstat_prefix, sizeof(path)) >= sizeof(path))
-	   return (-ENAMETOOLONG);
-	if (strlcat(path, path_suffix, sizeof(path)) >= sizeof(path))
-	   return (-ENAMETOOLONG);
+	if (strlcpy(path, kstat_prefix, sizeof (path)) >= sizeof (path))
+		return (-ENAMETOOLONG);
+	if (strlcat(path, path_suffix, sizeof (path)) >= sizeof (path))
+		return (-ENAMETOOLONG);
 
 	return (open(path, O_RDONLY));
 }
