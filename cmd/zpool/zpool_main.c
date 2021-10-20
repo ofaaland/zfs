@@ -3470,8 +3470,8 @@ report_import_progress_thread(void *arg)
 	struct timespec start = {0};
 	struct timespec last_report = {0};
 	u_longlong_t last_pool_guid = 0;
-	u_longlong_t last_multihost_secs_time = 0;
 	u_longlong_t last_max_txg = 0;
+	time_t last_multihost_finish = 0;
 	int rc = 0;
 	int import_kstat;
 
@@ -3549,7 +3549,7 @@ report_import_progress_thread(void *arg)
 		pool_rewind_buf[0] = '\0';
 
 		if (pool_guid != last_pool_guid ||
-		    multihost_secs_time != last_multihost_secs_time)
+		    multihost_finish != last_multihost_finish)
 			snprintf(mmp_status_buf,
 			    sizeof (mmp_status_buf), "Multihost is "
 			    "checking for a remote import.\nCheck will "
@@ -3573,7 +3573,7 @@ report_import_progress_thread(void *arg)
 		}
 
 		last_pool_guid = pool_guid;
-		last_multihost_secs_time = multihost_secs_time;
+		last_multihost_finish = multihost_finish;
 		last_max_txg = max_txg;
 
 		free(pool_name);
