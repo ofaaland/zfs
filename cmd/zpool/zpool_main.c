@@ -3465,7 +3465,7 @@ typedef struct import_progress_args {
 static void *
 report_import_progress_thread(void *arg)
 {
-	char path[] = "/proc/spl/kstat/zfs/import_progress";
+	char kstat_path[] = "import_progress";
 	import_progress_args_t *pa = arg;
 	struct timespec start = {0};
 	struct timespec last_report = {0};
@@ -3475,7 +3475,7 @@ report_import_progress_thread(void *arg)
 	int rc = 0;
 	int import_kstat;
 
-	import_kstat = open(path, O_RDONLY);
+	import_kstat = open_kstat(kstat_path);
 	if (import_kstat < 0)
 		rc = -1;
 
@@ -3581,9 +3581,9 @@ report_import_progress_thread(void *arg)
 	}
 
 	if (rc < 0) {
-		fprintf(stderr, "%s is not available to monitor the "
+		fprintf(stderr, "kstat %s is not available to monitor the "
 		    "progress of the import.  The import is "
-		    "continuing.\n", path);
+		    "continuing.\n", kstat_path);
 	}
 
 	if (import_kstat > 0)

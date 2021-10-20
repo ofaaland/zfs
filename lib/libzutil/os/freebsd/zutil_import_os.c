@@ -252,3 +252,20 @@ void
 update_vdevs_config_dev_sysfs_path(nvlist_t *config)
 {
 }
+
+/*
+ * Open a kstat and return the filehandle or error.
+ */
+int
+open_kstat(char *path_suffix)
+{
+	char kstat_prefix[]="/dev/kstat/zfs/";
+	char path[MAXPATHLEN];
+
+	if (strlcpy(path, kstat_prefix, sizeof(path)) >= sizeof(path))
+	   return (-ENAMETOOLONG);
+	if (strlcat(path, path_suffix, sizeof(path)) >= sizeof(path))
+	   return (-ENAMETOOLONG);
+
+	return (open(path, O_RDONLY));
+}
