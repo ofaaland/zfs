@@ -3439,7 +3439,7 @@ zpool_do_checkpoint(int argc, char **argv)
 /*
  * User-friendly strings for spa_load_state_t
  */
-static const char* const load_state_names[] = {
+static const char * const load_state_names[] = {
 	[SPA_LOAD_NONE] = "Import Complete",
 	[SPA_LOAD_OPEN] = "Importing",
 	[SPA_LOAD_IMPORT] = "Importing",
@@ -3462,7 +3462,7 @@ typedef struct import_progress_args {
 #define	PROGRESS_PERIOD_SECS	5
 #define	PROGRESS_SLEEP_USEC	100*1000
 
-#define KSTAT_NAME "import_progress"
+#define	KSTAT_NAME "import_progress"
 
 static void *
 report_import_progress_thread(void *arg)
@@ -3545,12 +3545,17 @@ report_import_progress_thread(void *arg)
 		pool_rewind_buf[0] = '\0';
 
 		if (pool_guid != last_pool_guid ||
-		    multihost_finish != last_multihost_finish)
-			snprintf(mmp_status_buf,
-			    sizeof (mmp_status_buf), "Multihost is "
-			    "checking for a remote import.\nCheck will "
-			    "complete by %s",
-			    ctime(&multihost_finish));
+		    multihost_finish != last_multihost_finish) {
+			struct tm tms;
+			char timestr[30];
+
+			tzset();
+			(void) strftime(timestr, sizeof (timestr),  "%F %T",
+				   localtime_r(&multihost_finish, &tms));
+			snprintf(mmp_status_buf, sizeof (mmp_status_buf),
+			    "Multihost is checking for a remote import.\nCheck "
+			    "will complete by %s", timestr);
+		}
 
 		if ((pool_guid != last_pool_guid ||
 		    max_txg != last_max_txg) &&
