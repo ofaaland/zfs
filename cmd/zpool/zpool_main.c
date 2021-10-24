@@ -3439,7 +3439,7 @@ zpool_do_checkpoint(int argc, char **argv)
 /*
  * User-friendly strings for spa_load_state_t
  */
-static char *load_state_names[] = {
+static const char* const load_state_names[] = {
 	[SPA_LOAD_NONE] = "Import Complete",
 	[SPA_LOAD_OPEN] = "Importing",
 	[SPA_LOAD_IMPORT] = "Importing",
