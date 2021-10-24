@@ -810,7 +810,7 @@ update_vdevs_config_dev_sysfs_path(nvlist_t *config)
 	for_each_vdev_in_nvlist(nvroot, sysfs_path_pool_vdev_iter_f, NULL);
 }
 
-#define KSTAT_PREFIX "/proc/spl/kstat/zfs/"
+#define	KSTAT_PREFIX "/proc/spl/kstat/zfs/"
 /*
  * Read the contents of a kstat into a buffer.  Handles only
  * kstats which are directly below "zfs".

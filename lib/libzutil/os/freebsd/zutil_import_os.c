@@ -253,7 +253,7 @@ update_vdevs_config_dev_sysfs_path(nvlist_t *config)
 {
 }
 
-#define KSTAT_PREFIX "kstat.zfs."
+#define	KSTAT_PREFIX "kstat.zfs."
 /*
  * Read the contents of a kstat into a buffer.  Handles only
  * kstats which are directly below "zfs".
