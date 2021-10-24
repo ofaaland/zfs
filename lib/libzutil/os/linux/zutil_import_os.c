@@ -810,6 +810,7 @@ update_vdevs_config_dev_sysfs_path(nvlist_t *config)
 	for_each_vdev_in_nvlist(nvroot, sysfs_path_pool_vdev_iter_f, NULL);
 }
 
+#define KSTAT_PREFIX "/proc/spl/kstat/zfs/"
 /*
  * Read the contents of a kstat into a buffer.  Handles only
  * kstats which are directly below "zfs".
@@ -817,13 +818,12 @@ update_vdevs_config_dev_sysfs_path(nvlist_t *config)
 int
 kstat_read(char *path_suffix, char *kstat_buf, size_t buflen)
 {
-	char kstat_prefix[] = "/proc/spl/kstat/zfs/";
 	char path[MAXPATHLEN];
 	int import_kstat;
 	int count;
 	int rc;
 
-	if (strlcpy(path, kstat_prefix, sizeof (path)) >= sizeof (path))
+	if (strlcpy(name, KSTAT_PREFIX, sizeof (name)) >= sizeof (name))
 		return (-ENAMETOOLONG);
 	if (strlcat(path, path_suffix, sizeof (path)) >= sizeof (path))
 		return (-ENAMETOOLONG);

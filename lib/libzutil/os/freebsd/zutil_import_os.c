@@ -253,6 +253,7 @@ update_vdevs_config_dev_sysfs_path(nvlist_t *config)
 {
 }
 
+#define KSTAT_PREFIX "kstat.zfs."
 /*
  * Read the contents of a kstat into a buffer.  Handles only
  * kstats which are directly below "zfs".
@@ -260,11 +261,10 @@ update_vdevs_config_dev_sysfs_path(nvlist_t *config)
 int
 kstat_read(char *name_suffix, char *kstat_buf, size_t buflen)
 {
-	char kstat_prefix[] = "kstat.zfs.";
 	char name[MAXPATHLEN];
 	int rc;
 
-	if (strlcpy(name, kstat_prefix, sizeof (name)) >= sizeof (name))
+	if (strlcpy(name, KSTAT_PREFIX, sizeof (name)) >= sizeof (name))
 		return (-ENAMETOOLONG);
 	if (strlcat(name, name_suffix, sizeof (name)) >= sizeof (name))
 		return (-ENAMETOOLONG);
