@@ -3462,10 +3462,11 @@ typedef struct import_progress_args {
 #define	PROGRESS_PERIOD_SECS	5
 #define	PROGRESS_SLEEP_USEC	100*1000
 
+#define KSTAT_NAME "import_progress"
+
 static void *
 report_import_progress_thread(void *arg)
 {
-	char kstat_path[] = "import_progress";
 	import_progress_args_t *pa = arg;
 	struct timespec start = {0};
 	struct timespec last_report = {0};
@@ -3506,7 +3507,7 @@ report_import_progress_thread(void *arg)
 		 * try again anyway.
 		 */
 		bzero(kstat_buf, sizeof (kstat_buf));
-		count = kstat_read(kstat_path, kstat_buf, sizeof (kstat_buf));
+		count = kstat_read(kstat_name, kstat_buf, sizeof (kstat_buf));
 		if (count < 0) {
 			if (errno != ENOMEM) {
 				fprintf(stderr,
@@ -3578,7 +3579,7 @@ report_import_progress_thread(void *arg)
 	if (rc < 0) {
 		fprintf(stderr, "kstat %s is not available to monitor the "
 		    "progress of the import.  The import is "
-		    "continuing.\n", kstat_path);
+		    "continuing.\n", kstat_name);
 	}
 
 	return (NULL);
