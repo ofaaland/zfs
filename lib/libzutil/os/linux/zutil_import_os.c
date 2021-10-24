@@ -838,7 +838,7 @@ kstat_read(char *path_suffix, char *kstat_buf, size_t buflen)
 
 	/* buffer is too small */
 	if (count == buflen) {
-		return (-errno);
+		return (-ENOMEM);
 	}
 
 	rc = close(import_kstat);
