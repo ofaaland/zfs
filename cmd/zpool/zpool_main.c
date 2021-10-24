@@ -3551,8 +3551,8 @@ report_import_progress_thread(void *arg)
 
 			tzset();
 			(void) strftime(timestr, sizeof (timestr),  "%F %T",
-				   localtime_r(&multihost_finish, &tms));
-			snprintf(mmp_status_buf, sizeof (mmp_status_buf),
+			    localtime_r(&multihost_finish, &tms));
+			(void) snprintf(mmp_status_buf, sizeof (mmp_status_buf),
 			    "Multihost is checking for a remote import.\nCheck "
 			    "will complete by %s", timestr);
 		}
