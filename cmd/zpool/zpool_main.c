@@ -3507,7 +3507,7 @@ report_import_progress_thread(void *arg)
 		 * try again anyway.
 		 */
 		bzero(kstat_buf, sizeof (kstat_buf));
-		count = kstat_read(kstat_name, kstat_buf, sizeof (kstat_buf));
+		count = kstat_read(KSTAT_NAME, kstat_buf, sizeof (kstat_buf));
 		if (count < 0) {
 			if (errno != ENOMEM) {
 				fprintf(stderr,
