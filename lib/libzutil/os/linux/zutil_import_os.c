@@ -823,7 +823,7 @@ kstat_read(char *path_suffix, char *kstat_buf, size_t buflen)
 	int count;
 	int rc;
 
-	if (strlcpy(name, KSTAT_PREFIX, sizeof (name)) >= sizeof (name))
+	if (strlcpy(path, KSTAT_PREFIX, sizeof (path)) >= sizeof (path))
 		return (-ENAMETOOLONG);
 	if (strlcat(path, path_suffix, sizeof (path)) >= sizeof (path))
 		return (-ENAMETOOLONG);
