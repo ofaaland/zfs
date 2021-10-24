@@ -3579,7 +3579,7 @@ report_import_progress_thread(void *arg)
 	if (rc < 0) {
 		fprintf(stderr, "kstat %s is not available to monitor the "
 		    "progress of the import.  The import is "
-		    "continuing.\n", kstat_name);
+		    "continuing.\n", KSTAT_NAME);
 	}
 
 	return (NULL);
